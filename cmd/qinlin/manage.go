@@ -2,15 +2,20 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"golang.org/x/term"
 	"qinlin/internal/config"
+	"qinlin/internal/supervisor"
+	"qinlin/internal/version"
 )
 
 func runCommand(args []string) error {
@@ -18,8 +23,11 @@ func runCommand(args []string) error {
 		return errors.New("usage: qinlin [init | admin show/set/reset | config show/set-port | check-config | --version]")
 	}
 	if len(args) == 1 && args[0] == "--version" {
-		fmt.Println("qinlin-server 0.2.0")
+		fmt.Println("qinlin-server " + version.Version + " (" + version.Revision + ")")
 		return nil
+	}
+	if len(args) == 1 && args[0] == "--version-json" {
+		return json.NewEncoder(os.Stdout).Encode(version.Current())
 	}
 	command := args[0]
 	sub := ""
@@ -51,6 +59,17 @@ func runCommand(args []string) error {
 		return errors.New("unexpected command arguments")
 	}
 	switch command {
+	case "supervise":
+		if err := os.Setenv("QINLIN_CONFIG", *path); err != nil {
+			return err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return supervisor.Run(ctx, cfg)
 	case "init":
 		values := map[string]string{}
 		if *addr != "" {

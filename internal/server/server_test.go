@@ -23,13 +23,24 @@ import (
 
 type testAPI struct {
 	qinlin.Mock
-	calls            atomic.Int32
-	fail             string
-	discoveryFailure string
-	started, release chan struct{}
+	calls                              atomic.Int32
+	discoveries                        atomic.Int32
+	discoveryStarted, discoveryRelease chan struct{}
+	fail                               string
+	discoveryFailure                   string
+	started, release                   chan struct{}
 }
 
 func (f *testAPI) Doors(ctx context.Context, s qinlin.Session) ([]qinlin.Door, error) {
+	f.discoveries.Add(1)
+	if f.discoveryStarted != nil {
+		close(f.discoveryStarted)
+		select {
+		case <-f.discoveryRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if f.discoveryFailure != "" {
 		return nil, &qinlin.Error{Kind: f.discoveryFailure}
 	}
@@ -49,6 +60,7 @@ func (f *testAPI) Open(ctx context.Context, s qinlin.Session, d qinlin.Door) err
 }
 
 type setup struct {
+	app           *Server
 	handler       http.Handler
 	db            *store.Store
 	fake          *testAPI
@@ -84,7 +96,7 @@ func newSetup(t *testing.T) *setup {
 	fake := &testAPI{}
 	logs := &bytes.Buffer{}
 	app := New(cfg, db, fake, slog.New(slog.NewTextHandler(logs, nil)))
-	return &setup{handler: app.Handler(), db: db, fake: fake, admin: cfg.AdminToken, secret: secret, doors: doors, logs: logs}
+	return &setup{app: app, handler: app.Handler(), db: db, fake: fake, admin: cfg.AdminToken, secret: secret, doors: doors, logs: logs}
 }
 func (x *setup) request(method, path, body, token, id string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))

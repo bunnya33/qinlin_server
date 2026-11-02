@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"qinlin/internal/qinlin"
 	"qinlin/internal/server"
 	"qinlin/internal/store"
+	"qinlin/internal/update"
 )
 
 func main() {
@@ -41,9 +43,18 @@ func run() error {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	app := server.New(cfg, db, api, logger)
+	updater, err := update.New(filepath.Join(filepath.Dir(cfg.DB), "updates"), os.Getenv("QINLIN_SUPERVISED") == "1")
+	if err != nil {
+		return err
+	}
+	app.SetUpdater(updater)
 	h := &http.Server{Addr: cfg.Addr, Handler: app.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	backgroundDone := make(chan struct{})
+	go func() { defer close(backgroundDone); app.RunBackground(ctx) }()
+	go updater.Run(ctx)
+	defer func() { stop(); <-backgroundDone }()
 	go func() {
 		tick := time.NewTicker(time.Hour)
 		defer tick.Stop()

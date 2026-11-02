@@ -149,6 +149,7 @@ chmod 0640 "$CONFIG_FILE"
 was_running=false
 systemctl is-active --quiet qinlin.service && was_running=true
 [[ ! -f "$INSTALL_DIR/bin/qinlin-server" ]] || cp -p "$INSTALL_DIR/bin/qinlin-server" "$temporary_dir/previous-binary"
+[[ ! -f "$INSTALL_DIR/bin/qinlin-supervisor" ]] || cp -p "$INSTALL_DIR/bin/qinlin-supervisor" "$temporary_dir/previous-supervisor"
 [[ ! -f $UNIT_FILE ]] || cp -p "$UNIT_FILE" "$temporary_dir/previous-unit"
 [[ ! -f "$INSTALL_DIR/lib/manage.sh" ]] || cp -p "$INSTALL_DIR/lib/manage.sh" "$temporary_dir/previous-manager"
 [[ ! -f $COMMAND_FILE ]] || cp -p "$COMMAND_FILE" "$temporary_dir/previous-command"
@@ -156,6 +157,7 @@ if [[ -f $UNIT_FILE ]] || systemctl is-active --quiet qinlin.service; then
   systemctl stop qinlin.service || die '无法停止现有服务，已取消更新。'
 fi
 install -m 0755 "$temporary_dir/qinlin-server" "$INSTALL_DIR/bin/qinlin-server"
+install -m 0755 "$temporary_dir/qinlin-server" "$INSTALL_DIR/bin/qinlin-supervisor"
 install -m 0755 "$SOURCE_DIR/deploy/manage.sh" "$INSTALL_DIR/lib/manage.sh"
 install -m 0644 "$SOURCE_DIR/deploy/qinlin.service" "$UNIT_FILE"
 cat > "$COMMAND_FILE" <<'SH'
@@ -184,6 +186,7 @@ if [[ $ready != true ]]; then
   systemctl stop qinlin.service 2>/dev/null || true
   if [[ -f "$temporary_dir/previous-binary" ]]; then
     install -m 0755 "$temporary_dir/previous-binary" "$INSTALL_DIR/bin/qinlin-server"
+    [[ ! -f "$temporary_dir/previous-supervisor" ]] || install -m 0755 "$temporary_dir/previous-supervisor" "$INSTALL_DIR/bin/qinlin-supervisor"
     [[ ! -f "$temporary_dir/previous-unit" ]] || install -m 0644 "$temporary_dir/previous-unit" "$UNIT_FILE"
     [[ ! -f "$temporary_dir/previous-manager" ]] || install -m 0755 "$temporary_dir/previous-manager" "$INSTALL_DIR/lib/manage.sh"
     [[ ! -f "$temporary_dir/previous-command" ]] || install -m 0755 "$temporary_dir/previous-command" "$COMMAND_FILE"

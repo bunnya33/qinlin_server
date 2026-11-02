@@ -37,6 +37,7 @@ async function load(){
   $('mode').hidden=!status.mock;$('mock-help').hidden=!status.mock;
   if(['disconnected','expired','relogin_required'].includes(status.account.state))$('account-details').open=true;
   renderDoors();renderTokens(tokens.tokens);renderOps(ops.operations);
+  if(typeof loadMaintenance==='function')void loadMaintenance();
 }
 function operationFeedback(op){
   if(op.state==='accepted')return currentStatus.mock

@@ -127,6 +127,7 @@ def main():
         output = run(first_install, env=env)
         username, password = credentials(output)
         original = config()
+        original_config_bytes = CONFIG.read_bytes()
         assert run(['systemctl', 'is-active', 'qinlin.service']).strip() == 'active'
         assert run(['systemctl', 'is-enabled', 'qinlin.service']).strip() == 'enabled'
         client = Client(username, password)
@@ -138,6 +139,54 @@ def main():
         marker.write_text('preserve business data')
         os.chown(marker, pwd.getpwnam('qinlin').pw_uid, pwd.getpwnam('qinlin').pw_gid)
         print('PASS install, systemd, password login, mock account and scoped token', flush=True)
+
+        check = client.request('/account/check')['check']
+        assert check['interval_minutes'] == 15
+        client.request('/account/check', 'PUT', {'interval_minutes': 5})
+        assert client.request('/account/check', 'POST', {})['check']['code'] == 'valid'
+        client.request('/account/check', 'PUT', {'interval_minutes': 0})
+        assert client.request('/account/check')['check']['next_check_at'] == 0
+        assert client.request('/updates')['update']['managed']
+        client.request('/updates/settings', 'PUT', {'auto_check': False, 'auto_download': False})
+        print('PASS persisted account check interval, manual check and managed update settings', flush=True)
+
+        if os.environ.get('QINLIN_TEST_PUBLISHED_UPDATE') == '1':
+            client.request('/updates/check', 'POST', {})
+            deadline = time.monotonic() + 60
+            while True:
+                update = client.request('/updates')['update']
+                if update['state'] not in ('checking',):
+                    break
+                assert time.monotonic() < deadline, 'published update check timed out'
+                time.sleep(1)
+            assert update['available'], 'published version must be newer than the test baseline: ' + str(update)
+            target = update['latest'].removeprefix('v')
+            client.request('/updates/download', 'POST', {})
+            deadline = time.monotonic() + 180
+            while True:
+                update = client.request('/updates')['update']
+                if update['state'] != 'downloading':
+                    break
+                assert time.monotonic() < deadline, 'published download timed out'
+                time.sleep(1)
+            assert update['ready'], 'published binary download or checksum failed: ' + str(update)
+            client.request('/updates/restart', 'POST', {})
+            deadline = time.monotonic() + 60
+            while True:
+                try:
+                    req = urllib.request.Request(config()['QINLIN_PUBLIC_URL'] + '/healthz')
+                    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=2) as response:
+                        if json.load(response)['version'] == target:
+                            break
+                except (OSError, urllib.error.URLError):
+                    pass
+                assert time.monotonic() < deadline, 'new version failed to start'
+                time.sleep(1)
+            client = Client(username, password)
+            assert client.request('/status')['account']['state'] == 'valid'
+            assert marker.read_text() == 'preserve business data'
+            assert CONFIG.read_bytes() == original_config_bytes
+            print('PASS published GitHub release check, checksum download, explicit restart, new version and data preservation', flush=True)
 
         run(['/usr/local/bin/qinlin'], '1\n3\n0\n')
         assert subprocess.run(['systemctl', 'is-active', '--quiet', 'qinlin.service']).returncode != 0

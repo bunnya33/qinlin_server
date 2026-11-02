@@ -18,11 +18,14 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"qinlin/internal/config"
 	"qinlin/internal/qinlin"
 	"qinlin/internal/store"
+	"qinlin/internal/update"
+	"qinlin/internal/version"
 	"qinlin/web"
 )
 
@@ -39,14 +42,19 @@ type principal struct {
 	Admin               bool
 }
 type Server struct {
-	cfg       config.Config
-	store     *store.Store
-	api       qinlin.API
-	log       *slog.Logger
-	accountMu sync.RWMutex
-	mu        sync.Mutex
-	sessions  map[string]browserSession
-	budgets   map[string]budget
+	cfg          config.Config
+	store        *store.Store
+	api          qinlin.API
+	log          *slog.Logger
+	accountMu    sync.RWMutex
+	mu           sync.Mutex
+	sessions     map[string]browserSession
+	budgets      map[string]budget
+	checkMu      sync.Mutex
+	checkStateMu sync.Mutex
+	checking     bool
+	updater      *update.Manager
+	restarting   atomic.Bool
 }
 
 var phonePattern = regexp.MustCompile(`^1[3-9][0-9]{9}$`)
@@ -64,7 +72,7 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, 503, "storage_unavailable")
 			return
 		}
-		write(w, 200, map[string]any{"ok": true})
+		write(w, 200, map[string]any{"ok": true, "version": version.Version, "revision": version.Revision})
 	})
 	m.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -80,12 +88,18 @@ func (s *Server) Handler() http.Handler {
 		s.asset(w, "request-id.js", "text/javascript; charset=utf-8")
 	})
 	m.HandleFunc("GET /app.css", func(w http.ResponseWriter, r *http.Request) { s.asset(w, "app.css", "text/css; charset=utf-8") })
+	m.HandleFunc("GET /maintenance.js", func(w http.ResponseWriter, r *http.Request) {
+		s.asset(w, "maintenance.js", "text/javascript; charset=utf-8")
+	})
 	m.HandleFunc("POST /api/v1/auth/login", s.login)
 	m.HandleFunc("GET /api/v1/auth/session", s.withAuth(true, s.authSession))
 	m.HandleFunc("POST /api/v1/auth/logout", s.withAuth(true, s.logout))
 	m.HandleFunc("GET /api/v1/status", s.withAuth(true, s.status))
 	m.HandleFunc("POST /api/v1/account/sms", s.withAuth(true, s.sms))
 	m.HandleFunc("POST /api/v1/account/login", s.withAuth(true, s.accountLogin))
+	m.HandleFunc("GET /api/v1/account/check", s.withAuth(true, s.getAccountCheck))
+	m.HandleFunc("PUT /api/v1/account/check", s.withAuth(true, s.setAccountCheck))
+	m.HandleFunc("POST /api/v1/account/check", s.withAuth(true, s.checkAccountNow))
 	m.HandleFunc("DELETE /api/v1/account", s.withAuth(true, s.disconnect))
 	m.HandleFunc("POST /api/v1/doors/refresh", s.withAuth(true, s.refresh))
 	m.HandleFunc("GET /api/v1/doors", s.withAuth(false, s.doors))
@@ -95,6 +109,9 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/tokens", s.withAuth(true, s.createToken))
 	m.HandleFunc("DELETE /api/v1/tokens/{token}", s.withAuth(true, s.revokeToken))
 	m.HandleFunc("GET /api/v1/operations", s.withAuth(true, s.operations))
+	m.HandleFunc("GET /api/v1/updates", s.withAuth(true, s.getUpdates))
+	m.HandleFunc("PUT /api/v1/updates/settings", s.withAuth(true, s.setUpdatePreferences))
+	m.HandleFunc("POST /api/v1/updates/{action}", s.withAuth(true, s.updateAction))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -500,6 +517,10 @@ func (s *Server) operations(w http.ResponseWriter, r *http.Request, p principal)
 }
 
 func (s *Server) openDoor(w http.ResponseWriter, r *http.Request, p principal) {
+	if s.isRestarting() {
+		writeError(w, 503, "service_restarting")
+		return
+	}
 	// Require a JSON object, even though the target is already in the path.
 	var body struct{}
 	if !decode(w, r, &body) {
@@ -520,6 +541,10 @@ func (s *Server) openDoor(w http.ResponseWriter, r *http.Request, p principal) {
 	}
 	s.accountMu.RLock()
 	defer s.accountMu.RUnlock()
+	if s.isRestarting() {
+		writeError(w, 503, "service_restarting")
+		return
+	}
 	// Recheck token revocation after acquiring the account lock, so a completed
 	// revoke/login/disable action cannot be followed by a waiting old request.
 	if !p.Admin {

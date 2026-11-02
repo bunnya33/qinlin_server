@@ -214,6 +214,9 @@ func (s *Store) ReplaceAccount(session qinlin.Session, doors []qinlin.Door) erro
 	}
 	defer tx.Rollback()
 	now := time.Now().UnixMilli()
+	if _, err = tx.Exec("DELETE FROM meta WHERE key='setting:account_check_result'"); err != nil {
+		return err
+	}
 	if _, err = tx.Exec("INSERT INTO account(id,secret,state,linked_at,verified_at) VALUES(1,?,'valid',?,?) ON CONFLICT(id) DO UPDATE SET secret=excluded.secret,state='valid',linked_at=excluded.linked_at,verified_at=excluded.verified_at", secret, now, now); err != nil {
 		return err
 	}
@@ -262,6 +265,10 @@ func (s *Store) Refresh(doors []qinlin.Door) error {
 	if _, err = tx.Exec("UPDATE account SET state='valid',verified_at=? WHERE id=1", time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	result, _ := json.Marshal(map[string]any{"checked_at": time.Now().UnixMilli(), "code": "valid"})
+	if _, err = tx.Exec("INSERT INTO meta(key,value) VALUES('setting:account_check_result',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", result); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 func upsertDoors(tx *sql.Tx, doors []qinlin.Door) error {
@@ -284,7 +291,7 @@ func (s *Store) Disconnect() error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, q := range []string{"DELETE FROM account", "UPDATE doors SET enabled=0,available=0", "UPDATE tokens SET revoked=1"} {
+	for _, q := range []string{"DELETE FROM account", "DELETE FROM meta WHERE key='setting:account_check_result'", "UPDATE doors SET enabled=0,available=0", "UPDATE tokens SET revoked=1"} {
 		if _, err = tx.Exec(q); err != nil {
 			return err
 		}

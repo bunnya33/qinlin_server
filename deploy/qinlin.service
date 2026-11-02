@@ -12,10 +12,11 @@ Group=qinlin
 WorkingDirectory=/var/lib/qinlin
 Environment=QINLIN_CONFIG=/etc/qinlin/qinlin.env
 EnvironmentFile=/etc/qinlin/qinlin.env
-ExecStart=/opt/qinlin/bin/qinlin-server
+ExecStart=/opt/qinlin/bin/qinlin-supervisor supervise
 Restart=on-failure
 RestartSec=3
-TimeoutStopSec=45
+TimeoutStopSec=60
+KillMode=mixed
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
