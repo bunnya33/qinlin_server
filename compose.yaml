@@ -1,0 +1,23 @@
+services:
+  qinlin:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      QINLIN_ADDR: 0.0.0.0:8080
+      QINLIN_DB: /app/data/qinlin.db
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - qinlin_data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 45s
+
+volumes:
+  qinlin_data:

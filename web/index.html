@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e2420">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="亲邻开门">
+  <meta name="qinlin-service-url" content="{{.PublicURL}}">
+  <title>亲邻 · 我的门禁</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/request-id.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="/" aria-label="亲邻开门首页"><span class="brand-icon">↗</span> 亲邻<span class="brand-sub">个人门禁</span></a><button id="logout" class="quiet" hidden>退出管理</button></header>
+    <section class="intro"><p class="eyebrow">YOUR WAY HOME</p><h1>回家，少一步。</h1><p class="subtitle">选择你的门，或用 iPhone 快捷指令轻松开门。</p></section>
+    <div id="notice" role="status" aria-live="polite" hidden><span id="notice-message"></span><a id="service-link" href="{{.PublicURL}}" target="_blank" rel="noopener noreferrer" hidden>直接打开服务</a></div>
+    <section id="login-panel" class="panel" hidden>
+      <div class="section-title"><span class="step">01</span><h2>进入你的工作台</h2></div>
+      {{if .PasswordLogin}}
+      <p class="muted">输入安装时生成或在服务器管理菜单中设置的账号密码。</p>
+      <form id="site-login"><label for="admin-username">管理员账号</label><input id="admin-username" autocomplete="username" required><label for="admin-password">管理员密码</label><input id="admin-password" type="password" autocomplete="current-password" required><button class="primary" type="submit">进入管理</button></form>
+      {{else}}
+      <p class="muted">输入服务器 .env 中的管理密钥。</p>
+      <form id="site-login"><label for="admin-token">管理密钥</label><input id="admin-token" type="password" autocomplete="current-password" required placeholder="QINLIN_ADMIN_TOKEN"><button class="primary" type="submit">进入管理</button></form>
+      {{end}}
+    </section>
+    <div id="workspace" hidden>
+      <section class="status-strip"><span class="dot"></span><div><strong id="account-state">正在读取状态</strong><p id="verified-at"></p></div><span id="mode" class="badge" hidden>模拟模式</span></section>
+      <section id="door-panel" class="panel">
+        <div class="section-title"><span class="step">01</span><h2>我的门禁</h2><button id="refresh" class="quiet right">刷新门禁</button></div>
+        <p class="muted">启用需要的门禁后，即可开门或配置快捷指令。</p>
+        <div id="doors" class="door-list"></div>
+        <p id="door-empty" class="empty">关联亲邻账号后，你有权限使用的门禁会出现在这里。</p>
+      </section>
+      <section class="panel">
+        <details id="account-details"><summary><span class="step">02</span><span>关联亲邻账号</span><span class="detail-arrow">＋</span></summary>
+          <p class="muted">会话失效时在这里重新登录。验证码仅用于本次登录。</p>
+          <p id="mock-help" class="hint" hidden>模拟模式不会发送短信。输入任意合法格式手机号及验证码 123456。</p>
+          <form id="account-login"><label for="phone">亲邻账号手机号</label><div class="input-row"><input id="phone" type="tel" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" maxlength="11" required placeholder="11 位手机号"><button type="button" id="send-sms" class="secondary">获取验证码</button></div><label for="sms-code">短信验证码</label><input id="sms-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,8}" maxlength="8" required placeholder="输入验证码"><button class="primary" type="submit">登录并获取门禁</button></form>
+          <button id="disconnect" class="text-danger">断开账号并撤销快捷指令令牌</button>
+        </details>
+      </section>
+      <section class="panel">
+        <details id="shortcut-details"><summary><span class="step">03</span><span>iPhone 快捷指令</span><span class="detail-arrow">＋</span></summary>
+          <p class="muted">在门禁卡片上点击「配置快捷指令」，生成该门专用的令牌。有效期 90 天，可随时撤销。</p>
+          <div id="shortcut-result" hidden>
+            <p class="hint">令牌仅显示这一次，请复制到自己的快捷指令。关闭或刷新页面后无法再次查看。</p>
+            <label for="shortcut-url">URL</label><div class="copy-row"><input id="shortcut-url" readonly><button id="copy-url" class="secondary">复制</button></div>
+            <label for="shortcut-auth">Authorization 请求头</label><div class="copy-row"><input id="shortcut-auth" readonly><button id="copy-auth" class="secondary">复制</button></div>
+            <ol class="instructions"><li>打开「快捷指令」，新建一个快捷指令。</li><li>添加「获取 URL 内容」，填入上面的 URL。</li><li>展开选项，将方法设为 <b>POST</b>。</li><li>添加请求头 <code>Authorization</code>，值为上方完整内容。</li><li>请求体选择 <b>JSON</b>，保持空字典 <code>{}</code>，请求头 <code>Content-Type</code> 设为 <code>application/json</code>。</li><li>添加「显示结果」，显示返回值中的 <code>message</code>。</li></ol>
+            <p class="muted small">可选：添加「生成 UUID」操作，将结果作为 Idempotency-Key 请求头。同一次请求重试时沿用原 UUID，每次主动开门生成新 UUID。</p>
+            <button id="hide-secret" class="secondary">已保存，隐藏令牌</button>
+          </div>
+          <div id="tokens" class="token-list"></div>
+        </details>
+      </section>
+      <section class="panel"><details><summary><span class="step">04</span><span>最近请求</span><span class="detail-arrow">＋</span></summary><p class="muted small">仅保留最近 7 天，最多显示 50 条。这里显示的是服务端响应。</p><div id="operations"></div></details></section>
+    </div>
+    <footer>只为你的日常通行。<span>亲邻会话保存在服务器端。</span></footer>
+  </main>
+</body>
+</html>

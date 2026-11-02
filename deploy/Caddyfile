@@ -1,0 +1,8 @@
+# Replace this domain and set QINLIN_PUBLIC_URL=https://door.example.com.
+# This sample assumes Caddy runs on the Docker host.
+door.example.com {
+    reverse_proxy 127.0.0.1:8080 {
+        # Do not add retries for door commands.
+        lb_try_duration 0
+    }
+}

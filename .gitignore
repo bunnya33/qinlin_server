@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+data/
+bin/
+*.exe
+*.db*
+coverage.out
+__pycache__/
+*.pyc
+*.edit.lock
