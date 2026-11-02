@@ -19,8 +19,8 @@ jobs:
       - run: node --test web/*.test.cjs
       - run: go build ./cmd/qinlin
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: shellcheck bootstrap.sh install.sh deploy/manage.sh
-      - run: python3 -m py_compile tests/linux-smoke.py
+      - run: shellcheck bootstrap.sh install.sh deploy/manage.sh deploy/install-offline.sh
+      - run: python3 -m py_compile scripts/package-offline.py tests/linux-smoke.py tests/offline-smoke.py
       - run: CGO_ENABLED=0 go build -o bin/qinlin-linux-amd64 ./cmd/qinlin
       - name: Download published bootstrap
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -29,3 +29,7 @@ jobs:
         env:
           QINLIN_TEST_BOOTSTRAP: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '/tmp/qinlin-bootstrap.sh' || '' }}
         run: sudo QINLIN_PREBUILT_BINARY="$PWD/bin/qinlin-linux-amd64" QINLIN_TEST_BOOTSTRAP="$QINLIN_TEST_BOOTSTRAP" python3 tests/linux-smoke.py
+      - name: Build and verify the offline installer
+        run: |
+          python3 scripts/package-offline.py --arch amd64
+          sudo python3 tests/offline-smoke.py dist/qinlin-*-linux-amd64.tar.gz

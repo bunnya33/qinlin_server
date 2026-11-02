@@ -114,11 +114,19 @@ def main():
         pass
     else:
         raise RuntimeError('existing qinlin OS account detected; no test changes made')
-    binary = pathlib.Path(os.environ.get('QINLIN_PREBUILT_BINARY', str(ROOT / 'bin/qinlin-linux-amd64'))).resolve()
-    assert binary.is_file(), 'build the Linux binary before running the test'
-    env = dict(os.environ, QINLIN_PREBUILT_BINARY=str(binary))
+    offline_dir = os.environ.get('QINLIN_TEST_OFFLINE_DIR')
+    if offline_dir:
+        installer = pathlib.Path(offline_dir).resolve() / 'install-offline.sh'
+        assert installer.is_file(), 'extract the offline package before running the test'
+        env = dict(os.environ)
+        env.pop('QINLIN_PREBUILT_BINARY', None)
+    else:
+        binary = pathlib.Path(os.environ.get('QINLIN_PREBUILT_BINARY', str(ROOT / 'bin/qinlin-linux-amd64'))).resolve()
+        assert binary.is_file(), 'build the Linux binary before running the test'
+        env = dict(os.environ, QINLIN_PREBUILT_BINARY=str(binary))
+        installer = ROOT / 'install.sh'
     port = free_port()
-    install = ['bash', str(ROOT / 'install.sh'), '--port', str(port), '--public-url', 'http://127.0.0.1:' + str(port), '--mock']
+    install = ['bash', str(installer), '--port', str(port), '--public-url', 'http://127.0.0.1:' + str(port), '--mock']
     started = False
     try:
         started = True
@@ -131,6 +139,10 @@ def main():
         assert run(['systemctl', 'is-active', 'qinlin.service']).strip() == 'active'
         assert run(['systemctl', 'is-enabled', 'qinlin.service']).strip() == 'enabled'
         client = Client(username, password)
+        if offline_dir:
+            update = client.request('/updates')['update']['preferences']
+            assert update['auto_check'] is False and update['auto_download'] is False
+            print('PASS offline installation defaults disable GitHub checks and downloads', flush=True)
         client.request('/account/login', 'POST', {'phone': '13800138000', 'code': '123456'})
         door = client.request('/doors')['doors'][0]['id']
         client.request('/doors/' + door, 'PATCH', {'enabled': True})
@@ -147,7 +159,8 @@ def main():
         client.request('/account/check', 'PUT', {'interval_minutes': 0})
         assert client.request('/account/check')['check']['next_check_at'] == 0
         assert client.request('/updates')['update']['managed']
-        client.request('/updates/settings', 'PUT', {'auto_check': False, 'auto_download': False})
+        preferences = {'auto_check': False, 'auto_download': bool(offline_dir)}
+        client.request('/updates/settings', 'PUT', preferences)
         print('PASS persisted account check interval, manual check and managed update settings', flush=True)
 
         if os.environ.get('QINLIN_TEST_PUBLISHED_UPDATE') == '1':
@@ -222,6 +235,7 @@ def main():
         assert CONFIG.read_bytes() == before
         assert marker.read_text() == 'preserve business data'
         assert Client(username, password).request('/status')['account']['state'] == 'valid'
+        assert Client(username, password).request('/updates')['update']['preferences'] == preferences
         req = urllib.request.Request(config()['QINLIN_PUBLIC_URL'] + '/api/v1/doors', headers={'Authorization': 'Bearer ' + door_token})
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=10) as response:
             assert len(json.load(response)['doors']) == 1

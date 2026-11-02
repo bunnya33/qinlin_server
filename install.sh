@@ -13,6 +13,7 @@ GO_VERSION=1.26.2
 port=8080
 public_url=''
 mock=false
+offline=false
 
 die() { echo "安装失败：$*" >&2; exit 1; }
 [[ ${EUID} -eq 0 ]] || die '请运行 sudo bash install.sh'
@@ -25,21 +26,28 @@ while [[ $# -gt 0 ]]; do
     --port) [[ $# -ge 2 ]] || die '--port 缺少参数'; port=$2; shift 2 ;;
     --public-url) [[ $# -ge 2 ]] || die '--public-url 缺少参数'; public_url=$2; shift 2 ;;
     --mock) mock=true; shift ;;
-    -h|--help) echo '用法：sudo bash install.sh [--port 8080] [--public-url http://服务器IP:8080] [--mock]'; exit 0 ;;
+    --offline) offline=true; shift ;;
+    -h|--help) echo '用法：sudo bash install.sh [--port 8080] [--public-url http://服务器IP:8080] [--mock] [--offline]'; exit 0 ;;
     *) die "未知参数：$1" ;;
   esac
 done
 [[ $port =~ ^[0-9]{1,5}$ ]] || die '端口必须为 1～65535 的整数。'
 port=$((10#$port))
 ((port >= 1 && port <= 65535)) || die '端口必须为 1～65535。'
+if [[ $offline == true ]]; then
+  [[ -n ${QINLIN_PREBUILT_BINARY:-} && -f $QINLIN_PREBUILT_BINARY ]] || die '离线安装需要预编译程序，请使用离线包中的 install-offline.sh。'
+  [[ -f "$SOURCE_DIR/deploy/manage.sh" && -f "$SOURCE_DIR/deploy/qinlin.service" ]] || die '离线安装包不完整，缺少 deploy 管理文件。'
+fi
 
 install_dependencies() {
-  local missing=false dependency
-  for dependency in curl tar git python3 flock ss useradd getent; do
-    command -v "$dependency" >/dev/null || missing=true
+  local missing=false dependency missing_names='' required=(curl python3 flock ss useradd groupadd getent install sha256sum)
+  [[ $offline == true ]] || required+=(tar git)
+  for dependency in "${required[@]}"; do
+    if ! command -v "$dependency" >/dev/null; then missing=true; missing_names+=" $dependency"; fi
   done
-  [[ -s /etc/ssl/certs/ca-certificates.crt || -s /etc/pki/tls/certs/ca-bundle.crt ]] || missing=true
+  if [[ ! -s /etc/ssl/certs/ca-certificates.crt && ! -s /etc/pki/tls/certs/ca-bundle.crt ]]; then missing=true; missing_names+=' ca-certificates'; fi
   [[ $missing == true ]] || return 0
+  [[ $offline != true ]] || die "缺少系统依赖：$missing_names。离线模式不会联网安装依赖，请先通过系统软件源安装 curl、python3、util-linux、iproute2（RPM 系为 iproute）、passwd/shadow-utils 和 ca-certificates 后重试。"
   echo '正在安装必要依赖……'
   if command -v apt-get >/dev/null; then
     apt-get update
@@ -61,7 +69,7 @@ trap 'rm -rf -- "$temporary_dir"' EXIT
 
 # The bootstrap entry point downloads this same installer first. Dependencies
 # are installed before unpacking source; Git-clone installs use their checkout.
-if [[ ! -f "$SOURCE_DIR/go.mod" ]]; then
+if [[ ! -f "$SOURCE_DIR/go.mod" && $offline != true ]]; then
   curl -fLSs --connect-timeout 15 --max-time 180 --retry 2 'https://codeload.github.com/bunnya33/qinlin_server/tar.gz/refs/heads/main' -o "$temporary_dir/source.tar.gz"
   mkdir "$temporary_dir/source"
   tar -xzf "$temporary_dir/source.tar.gz" -C "$temporary_dir/source" --strip-components=1
@@ -145,6 +153,12 @@ fi
 chown root:qinlin "$CONFIG_FILE"
 chmod 0640 "$CONFIG_FILE"
 "$temporary_dir/qinlin-server" check-config --config "$CONFIG_FILE"
+if [[ $offline == true && ! -e "$DATA_DIR/updates/preferences.json" ]]; then
+  install -d -m 0700 -o qinlin -g qinlin "$DATA_DIR/updates"
+  printf '%s\n' '{"auto_check":false,"auto_download":false}' > "$DATA_DIR/updates/preferences.json"
+  chown qinlin:qinlin "$DATA_DIR/updates/preferences.json"
+  chmod 0600 "$DATA_DIR/updates/preferences.json"
+fi
 
 was_running=false
 systemctl is-active --quiet qinlin.service && was_running=true
@@ -178,7 +192,7 @@ ready=false
 systemctl reset-failed qinlin.service 2>/dev/null || true
 if systemctl restart qinlin.service; then
   for ((attempt=0;attempt<20;attempt++)); do
-    if curl -fsS --max-time 2 "$local_url" >/dev/null 2>&1; then ready=true; break; fi
+    if curl --noproxy '*' -fsS --max-time 2 "$local_url" >/dev/null 2>&1; then ready=true; break; fi
     sleep 1
   done
 fi

@@ -47,7 +47,31 @@ sudo qinlin
 
 服务以无登录权限的 `qinlin` 系统用户运行。日志可通过 `sudo journalctl -u qinlin -n 50` 查看。卸载需要明确确认，默认保留配置和业务数据；彻底删除必须再次输入 `DELETE`。卸载不会移除共享系统依赖，系统服务账号保留，以便保留数据后重新安装继续使用。保留数据重新安装会沿用原凭据和密钥。
 
-没有外网 Go 下载条件时，可在匹配架构的机器编译 Linux 程序，再指定已有程序安装：
+## 无法访问 GitHub 的服务器：上传离线包
+
+使用 `qinlin-v0.3.0-linux-amd64.tar.gz`（`uname -m` 为 `x86_64`）或 `qinlin-v0.3.0-linux-arm64.tar.gz`（`aarch64`）。在本地将整个压缩包上传到服务器，然后执行：
+
+```bash
+tar -xzf qinlin-v0.3.0-linux-amd64.tar.gz
+cd qinlin-v0.3.0-linux-amd64
+sudo bash install-offline.sh --public-url http://你的服务器IP:8080
+```
+
+ARM64 服务器将上面的包名替换为 `arm64`。默认端口为 8080，需在云安全组允许该端口。首次安装后显示随机管理员账号密码，管理菜单仍为 `sudo qinlin`。
+
+离线包包含静态 Linux 程序、管理菜单和 systemd 服务，不包含开发电脑的 `.env`、账号、Token 或数据库；安装时检查文件校验和及 CPU 架构，不连接 GitHub、不下载 Go，也不会调用包管理器。系统需已有 bash、curl、python3、flock、ss、useradd/groupadd、getent、coreutils 和 CA 证书；缺少时脚本会明确列出，可通过国内系统软件源补齐。亲邻登录、账号检测与开门仍需访问亲邻服务。
+
+离线安装首次创建更新设置时，默认关闭 GitHub 自动检查与自动下载；已有设置保持不变。以后上传新版离线包并再次执行安装命令即可升级，保留已有配置和业务数据。已有端口和访问地址继续沿用。
+
+维护者可在项目目录运行以下命令生成两个架构的压缩包及 SHA-256 校验文件（需要 Go 1.26+、Python 3.9+）：
+
+```bash
+python3 scripts/package-offline.py
+```
+
+Windows 使用 `py -3 scripts/package-offline.py`。产物在 `dist/`，以后发布版本时 GitHub Release 工作流也会附带离线包。
+
+如已有源码和匹配架构的程序，也可指定程序安装；该方式仍会按需联网安装系统依赖：
 
 ```bash
 sudo QINLIN_PREBUILT_BINARY=/绝对路径/qinlin-linux-amd64 bash install.sh
@@ -255,7 +279,7 @@ Compose 默认将应用发布到服务器的 `127.0.0.1:8080`。通过 IP 直接
 go test ./...
 go vet ./...
 node --test web/request-id.test.cjs
-shellcheck bootstrap.sh install.sh deploy/manage.sh
+shellcheck bootstrap.sh install.sh deploy/manage.sh deploy/install-offline.sh
 go test -race ./...  # 需要支持 race 的工具链及 C 编译器；Linux CI 已配置
 go test ./internal/qinlin -fuzz=FuzzParse -fuzztime=10s
 ```
@@ -263,5 +287,7 @@ go test ./internal/qinlin -fuzz=FuzzParse -fuzztime=10s
 测试使用临时 SQLite 和本地 HTTP 测试服务器，覆盖协议签名、手机号加密、响应分类、重定向/超时不重试、授权、CSRF、JSON 校验、并发去重、冷却、令牌撤销、账号切换、会话密文及重启恢复。不向真实亲邻服务发送请求。
 
 `tests/linux-smoke.py` 提供实际 systemd 安装和菜单验收：仅能在无现有亲邻安装、无 `qinlin` 系统用户的可弃置 Linux 环境以 root 运行，需要预先编译 `bin/qinlin-linux-amd64` 或设置 `QINLIN_PREBUILT_BINARY`。测试使用模拟门禁，覆盖安装、服务操作、端口检查、隐藏密码输入、凭据重置、重复安装、保留数据卸载、重装和彻底卸载，结束后清理测试安装。
+
+`sudo python3 tests/offline-smoke.py dist/qinlin-v0.3.0-linux-amd64.tar.gz` 在同样的可弃置环境验证实际离线包，额外检查损坏文件与错误架构被拒绝、首次安装关闭 GitHub 自动更新，以及整个安装/管理流程未调用外部下载工具。全部账号操作仍使用模拟模式。
 
 协议来源和 MIT 许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，本次实际执行的检查及环境限制见 [VALIDATION.md](VALIDATION.md)。尚未验证的主要部分是实际账号兼容性、上游会话寿命和 iPhone 端体验；本服务不会据公开 Issue 猜测自动续期机制。

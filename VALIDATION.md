@@ -1,5 +1,12 @@
 # 本次验证记录
 
+## 2026-11-02 Linux 离线安装包
+
+- `scripts/package-offline.py` 实际生成 Linux amd64/arm64 静态程序离线包及各自的 SHA-256 校验文件，产物在本地 `dist/`。内容白名单检查通过，不包含 `.env`、业务数据库、账号或令牌；两个架构的 ELF 标识、脚本 LF 换行、文件权限和包内/包外校验均通过。
+- WSL Ubuntu 22.04 / systemd 的 `tests/offline-smoke.py` 实际通过：损坏文件和错误架构拒绝、离线安装、管理员登录、模拟账号关联、管理菜单、凭据变更、重复安装保留配置/账号/令牌/更新偏好、保留数据卸载重装、彻底卸载。使用 PATH 拦截器验证安装和菜单流程没有调用外部 curl 请求、Git、Go 或包管理器。
+- 首次离线安装关闭 GitHub 自动检查与自动下载；修改更新偏好后重装仍保留用户设置。系统依赖缺失时离线模式明确报错，不联网补装。
+- `shellcheck bootstrap.sh install.sh deploy/manage.sh deploy/install-offline.sh`、`git diff --check` 通过。ARM64 包已完成交叉编译及静态文件验证，未在 ARM64 硬件运行。所有账号和门禁验收使用模拟模式。
+
 日期：2026-11-01。环境：Windows amd64，Go 1.26.2，CGO 关闭。
 
 ## 已通过

@@ -37,6 +37,15 @@ jobs:
               -o "$output" ./cmd/qinlin
           done
           (cd dist && sha256sum qinlin-server_* > SHA256SUMS)
+      - name: Package offline Linux installers
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REVISION: ${{ github.sha }}
+        run: python3 scripts/package-offline.py --version "$RELEASE_TAG" --revision "$RELEASE_REVISION" --binary-dir dist
+      - name: Verify offline installation and management
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: sudo python3 tests/offline-smoke.py "dist/qinlin-${RELEASE_TAG}-linux-amd64.tar.gz"
       - name: Publish binaries and checksums
         env:
           GH_TOKEN: ${{ github.token }}
