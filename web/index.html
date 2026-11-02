@@ -31,7 +31,7 @@
       <section class="status-strip"><span class="dot"></span><div><strong id="account-state">正在读取状态</strong><p id="verified-at"></p></div><span id="mode" class="badge" hidden>模拟模式</span></section>
       <section id="door-panel" class="panel">
         <div class="section-title"><span class="step">01</span><h2>我的门禁</h2><button id="refresh" class="quiet right">刷新门禁</button></div>
-        <p class="muted">启用需要的门禁后，即可开门或配置快捷指令。</p>
+        <p class="muted">启用需要的门禁后，即可开门或配置快捷指令。开门结果显示在对应门禁卡片中。</p>
         <div id="doors" class="door-list"></div>
         <p id="door-empty" class="empty">关联亲邻账号后，你有权限使用的门禁会出现在这里。</p>
       </section>
@@ -57,7 +57,11 @@
           <div id="tokens" class="token-list"></div>
         </details>
       </section>
-      <section class="panel"><details><summary><span class="step">04</span><span>最近请求</span><span class="detail-arrow">＋</span></summary><p class="muted small">仅保留最近 7 天，最多显示 50 条。这里显示的是服务端响应。</p><div id="operations"></div></details></section>
+      <section class="panel"><details open><summary><span class="step">04</span><span>最近开门结果</span><span class="detail-arrow">＋</span></summary>
+        <p class="muted small">显示亲邻返回的请求结果，暂未接入门锁实际状态反馈。仅保留最近 7 天，最多显示 50 条。</p>
+        <div class="operations-toolbar"><span id="operations-updated" class="muted small" role="status" aria-live="polite"></span><button id="refresh-operations" class="secondary">刷新结果</button></div>
+        <div id="operations"></div>
+      </details></section>
     </div>
     <footer>只为你的日常通行。<span>亲邻会话保存在服务器端。</span></footer>
   </main>

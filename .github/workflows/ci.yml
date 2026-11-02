@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test web/request-id.test.cjs
+      - run: node --test web/*.test.cjs
       - run: go build ./cmd/qinlin
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: shellcheck bootstrap.sh install.sh deploy/manage.sh
