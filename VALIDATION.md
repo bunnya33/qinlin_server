@@ -40,5 +40,7 @@
 - `tests/linux-smoke.py` 在无既有安装的 WSL systemd 环境实际通过：安装、开机自启、账号密码登录、模拟门禁关联和专用令牌、状态/启停/重启、无效及被占用端口拒绝、修改端口后可访问、密码隐藏输入、随机重置后新凭据登录。
 - 同一测试还验证重复安装保留配置、密钥、账号和门禁令牌；取消卸载、默认保留数据卸载、保留数据后重装，以及二次确认彻底删除均通过。测试安装结束后已清理；全部账号操作均使用模拟门禁。
 - 已补上配置和认证回归测试，确认密码只保存 bcrypt 哈希、旧后台密码及管理 Token 在轮换后失效，亲邻业务配置和门禁令牌保持有效。
-- Linux CI 已包含竞态检查、ShellCheck 和同一套实际 systemd 安装/菜单验收。
+- Linux CI 已包含竞态检查、ShellCheck 和同一套实际 systemd 安装/菜单验收；首次推送的 [GitHub Actions 验证](https://github.com/bunnya33/qinlin_server/actions/runs/41375671698)全部通过。
 - 已在 WSL 使用 Linux Go 1.26.2 和 GCC 实际执行 `go test -buildvcs=false -race ./...`，全部通过。
+- 已从 GitHub 实际克隆已发布仓库并安装，账号密码登录、systemd 运行和开机自启、卸载清理均通过。此项使用预编译 Linux 程序，源码编译已另行验证。
+- 本机访问 `raw.githubusercontent.com` 超时，未将本机的一键安装入口记录为通过；main 分支 CI 增加从已发布地址下载 `bootstrap.sh` 并执行实际安装和完整管理菜单验收。

@@ -22,4 +22,10 @@ jobs:
       - run: shellcheck bootstrap.sh install.sh deploy/manage.sh
       - run: python3 -m py_compile tests/linux-smoke.py
       - run: CGO_ENABLED=0 go build -o bin/qinlin-linux-amd64 ./cmd/qinlin
-      - run: sudo QINLIN_PREBUILT_BINARY="$PWD/bin/qinlin-linux-amd64" python3 tests/linux-smoke.py
+      - name: Download published bootstrap
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: curl -fsSL --connect-timeout 15 --max-time 90 --retry 2 https://raw.githubusercontent.com/bunnya33/qinlin_server/main/bootstrap.sh -o /tmp/qinlin-bootstrap.sh
+      - name: Verify Linux installation and management
+        env:
+          QINLIN_TEST_BOOTSTRAP: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '/tmp/qinlin-bootstrap.sh' || '' }}
+        run: sudo QINLIN_PREBUILT_BINARY="$PWD/bin/qinlin-linux-amd64" QINLIN_TEST_BOOTSTRAP="$QINLIN_TEST_BOOTSTRAP" python3 tests/linux-smoke.py

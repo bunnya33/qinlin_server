@@ -122,7 +122,9 @@ def main():
     started = False
     try:
         started = True
-        output = run(install, env=env)
+        bootstrap = os.environ.get('QINLIN_TEST_BOOTSTRAP')
+        first_install = ['bash', bootstrap, *install[2:]] if bootstrap else install
+        output = run(first_install, env=env)
         username, password = credentials(output)
         original = config()
         assert run(['systemctl', 'is-active', 'qinlin.service']).strip() == 'active'
