@@ -111,6 +111,9 @@ CREATE INDEX IF NOT EXISTS operation_time ON operations(created_at);`)
 	if err != nil {
 		return fail(err)
 	}
+	if _, err = db.Exec(mobileSchema); err != nil {
+		return fail(err)
+	}
 	var sentinel []byte
 	err = db.QueryRow("SELECT value FROM meta WHERE key='key_check'").Scan(&sentinel)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -142,6 +145,9 @@ CREATE INDEX IF NOT EXISTS operation_time ON operations(created_at);`)
 		if _, err = db.Exec("UPDATE tokens SET revoked=1"); err != nil {
 			return fail(err)
 		}
+		if _, err = db.Exec("DELETE FROM mobile_accounts"); err != nil {
+			return fail(err)
+		}
 	}
 	if _, err = db.Exec("INSERT INTO meta(key,value) VALUES('mock',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", mode); err != nil {
 		return fail(err)
@@ -158,6 +164,10 @@ func (s *Store) Close() error { return errors.Join(s.db.Close(), s.lock.Close())
 func (s *Store) Ping() error  { return s.db.Ping() }
 func (s *Store) Prune() error {
 	_, err := s.db.Exec("DELETE FROM operations WHERE created_at<? AND state!='pending'", time.Now().Add(-7*24*time.Hour).UnixMilli())
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("DELETE FROM mobile_devices WHERE expires_at<=?", time.Now().UnixMilli())
 	return err
 }
 func (s *Store) seal(plain []byte, purpose string) ([]byte, error) {
@@ -273,13 +283,16 @@ func (s *Store) Refresh(doors []qinlin.Door) error {
 }
 func upsertDoors(tx *sql.Tx, doors []qinlin.Door) error {
 	for _, d := range doors {
-		h := sha256.Sum256([]byte(d.CommunityID + "\x00" + d.DoorID))
-		id := hex.EncodeToString(h[:16])
+		id := doorID(d)
 		if _, err := tx.Exec("INSERT INTO doors(id,community_id,upstream_id,community,name,available) VALUES(?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET community=excluded.community,name=excluded.name,available=1", id, d.CommunityID, d.DoorID, d.CommunityName, d.Name); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+func doorID(d qinlin.Door) string {
+	h := sha256.Sum256([]byte(d.CommunityID + "\x00" + d.DoorID))
+	return hex.EncodeToString(h[:16])
 }
 func (s *Store) SetAccountState(state string) error {
 	_, err := s.db.Exec("UPDATE account SET state=? WHERE id=1", state)
@@ -398,6 +411,10 @@ func (s *Store) RevokeToken(id string) error {
 // Reserve persists a command before it can be dispatched. All checks are in
 // one transaction, so competing request IDs cannot bypass the door cooldown.
 func (s *Store) Reserve(scope, id, door string, cooldown time.Duration) (Operation, bool, error) {
+	return s.reserve(scope, id, door, cooldown, func(tx *sql.Tx) error { return checkWebDoor(tx, door) })
+}
+
+func (s *Store) reserve(scope, id, door string, cooldown time.Duration, validate func(*sql.Tx) error) (Operation, bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Operation{}, false, err
@@ -414,23 +431,8 @@ func (s *Store) Reserve(scope, id, door string, cooldown time.Duration) (Operati
 	if !errors.Is(err, sql.ErrNoRows) {
 		return op, false, err
 	}
-	var enabled, available bool
-	if err = tx.QueryRow("SELECT enabled,available FROM doors WHERE id=?", door).Scan(&enabled, &available); errors.Is(err, sql.ErrNoRows) {
-		return op, false, ErrForbidden
-	} else if err != nil {
+	if err = validate(tx); err != nil {
 		return op, false, err
-	}
-	if !enabled || !available {
-		return op, false, ErrForbidden
-	}
-	var state string
-	if err = tx.QueryRow("SELECT state FROM account WHERE id=1").Scan(&state); errors.Is(err, sql.ErrNoRows) {
-		return op, false, ErrNoSession
-	} else if err != nil {
-		return op, false, err
-	}
-	if state != "valid" && state != "unknown" {
-		return op, false, ErrNoSession
 	}
 	var busy int
 	now := time.Now().UnixMilli()
@@ -449,12 +451,28 @@ func (s *Store) Reserve(scope, id, door string, cooldown time.Duration) (Operati
 	}
 	return op, true, nil
 }
+func checkWebDoor(tx *sql.Tx, door string) error {
+	var enabled, available bool
+	err := tx.QueryRow("SELECT enabled,available FROM doors WHERE id=?", door).Scan(&enabled, &available)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (!enabled || !available)) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	var state string
+	err = tx.QueryRow("SELECT state FROM account WHERE id=1").Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && state != "valid" && state != "unknown") {
+		return ErrNoSession
+	}
+	return err
+}
 func (s *Store) Finish(scope string, op Operation) error {
 	_, err := s.db.Exec("UPDATE operations SET state=?,code=?,updated_at=? WHERE scope=? AND request_id=? AND state='pending'", op.State, op.Code, op.UpdatedAt, scope, op.ID)
 	return err
 }
 func (s *Store) Operations() ([]Operation, error) {
-	rows, err := s.db.Query("SELECT request_id,door_id,state,code,created_at,updated_at FROM operations ORDER BY created_at DESC LIMIT 50")
+	rows, err := s.db.Query("SELECT request_id,door_id,state,code,created_at,updated_at FROM operations WHERE scope NOT LIKE 'mobile:%' ORDER BY created_at DESC LIMIT 50")
 	if err != nil {
 		return nil, err
 	}

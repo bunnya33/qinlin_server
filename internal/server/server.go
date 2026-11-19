@@ -42,19 +42,21 @@ type principal struct {
 	Admin               bool
 }
 type Server struct {
-	cfg          config.Config
-	store        *store.Store
-	api          qinlin.API
-	log          *slog.Logger
-	accountMu    sync.RWMutex
-	mu           sync.Mutex
-	sessions     map[string]browserSession
-	budgets      map[string]budget
-	checkMu      sync.Mutex
-	checkStateMu sync.Mutex
-	checking     bool
-	updater      *update.Manager
-	restarting   atomic.Bool
+	cfg              config.Config
+	store            *store.Store
+	api              qinlin.API
+	log              *slog.Logger
+	accountMu        sync.RWMutex
+	mu               sync.Mutex
+	sessions         map[string]browserSession
+	mobileLocks      [64]sync.Mutex
+	mobileChallenges map[string]smsChallenge
+	budgets          map[string]budget
+	checkMu          sync.Mutex
+	checkStateMu     sync.Mutex
+	checking         bool
+	updater          *update.Manager
+	restarting       atomic.Bool
 }
 
 var phonePattern = regexp.MustCompile(`^1[3-9][0-9]{9}$`)
@@ -63,10 +65,13 @@ var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,100}$`)
 var indexTemplate = template.Must(template.ParseFS(web.Files, "index.html"))
 
 func New(cfg config.Config, db *store.Store, api qinlin.API, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: db, api: api, log: log, sessions: map[string]browserSession{}, budgets: map[string]budget{}}
+	return &Server{cfg: cfg, store: db, api: api, log: log, sessions: map[string]browserSession{}, budgets: map[string]budget{}, mobileChallenges: map[string]smsChallenge{}}
 }
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
+	if s.cfg.Mobile {
+		s.mobileRoutes(m)
+	}
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if s.store.Ping() != nil {
 			writeError(w, 503, "storage_unavailable")
@@ -201,16 +206,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 401, "invalid_token")
 			return
 		}
-	} else {
-		if s.cfg.AdminPasswordHash == "" || len(body.Password) > 72 {
-			writeError(w, 401, "invalid_credentials")
-			return
-		}
-		passwordErr := bcrypt.CompareHashAndPassword([]byte(s.cfg.AdminPasswordHash), []byte(body.Password))
-		if !equal(body.Username, s.cfg.AdminUsername) || passwordErr != nil {
-			writeError(w, 401, "invalid_credentials")
-			return
-		}
+	} else if !s.validAdminPassword(body.Username, body.Password) {
+		writeError(w, 401, "invalid_credentials")
+		return
 	}
 	id, csrf := store.Random(), store.Random()
 	now := time.Now()
@@ -230,6 +228,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "qinlin_session", Value: id, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(s.cfg.PublicURL, "https://"), SameSite: http.SameSiteStrictMode, MaxAge: 43200})
 	write(w, 200, map[string]any{"ok": true, "csrf_token": csrf})
 }
+
+func (s *Server) validAdminPassword(username, password string) bool {
+	if s.cfg.AdminPasswordHash == "" || len(password) > 72 {
+		return false
+	}
+	err := bcrypt.CompareHashAndPassword([]byte(s.cfg.AdminPasswordHash), []byte(password))
+	return equal(username, s.cfg.AdminUsername) && err == nil
+}
+
 func (s *Server) authenticate(r *http.Request) (principal, bool) {
 	if h := r.Header.Get("Authorization"); h != "" {
 		if !strings.HasPrefix(h, "Bearer ") {
@@ -568,26 +575,33 @@ func (s *Server) openDoor(w http.ResponseWriter, r *http.Request, p principal) {
 	if doorErr != nil || accountErr != nil || a.Session.SessionID == "" {
 		op.State, op.Code = "rejected", "storage_error"
 	} else {
-		// Once reserved, finish independently of the phone connection. A lost
-		// HTTP response must not cancel/retry an already dispatched command.
-		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.UpstreamTimeout)
-		err = s.api.Open(ctx, a.Session, d.Upstream)
-		cancel()
-		op.State, op.Code = "accepted", "upstream_accepted"
-		if err != nil {
-			op.State, op.Code = "unknown", qinlin.Kind(err)
-			if op.Code == "expired" || op.Code == "denied" || op.Code == "rejected" || op.Code == "rate_limited" {
-				op.State = "rejected"
-			}
-			if op.Code == "expired" {
-				if s.store.SetAccountState("expired") != nil {
-					s.log.Error("account state persistence failed")
-				}
-			}
-		}
+		s.dispatchOpen(&op, a.Session, d.Upstream, func() error { return s.store.SetAccountState("expired") })
 	}
+	s.completeOpen(w, p.Scope, op)
+}
+
+func (s *Server) dispatchOpen(op *store.Operation, session qinlin.Session, door qinlin.Door, expire func() error) {
+	// Once reserved, finish independently of the caller's connection.
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.UpstreamTimeout)
+	defer cancel()
+	err := s.api.Open(ctx, session, door)
+	op.State, op.Code = "accepted", "upstream_accepted"
+	if err == nil {
+		return
+	}
+	op.State, op.Code = "unknown", qinlin.Kind(err)
+	switch op.Code {
+	case "expired", "denied", "rejected", "rate_limited":
+		op.State = "rejected"
+	}
+	if op.Code == "expired" && expire() != nil {
+		s.log.Error("account state persistence failed")
+	}
+}
+
+func (s *Server) completeOpen(w http.ResponseWriter, scope string, op store.Operation) {
 	op.UpdatedAt = time.Now().UnixMilli()
-	if err = s.store.Finish(p.Scope, op); err != nil {
+	if err := s.store.Finish(scope, op); err != nil {
 		op.State, op.Code = "unknown", "storage_error"
 		s.log.Error("operation result persistence failed", "request_id", op.ID)
 	}

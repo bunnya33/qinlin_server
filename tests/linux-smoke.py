@@ -5,6 +5,7 @@ Run as root on a disposable systemd Linux environment. Refuses any existing
 qinlin paths or OS account, and uses mock doors exclusively.
 """
 import http.cookiejar
+import hashlib
 import json
 import os
 import pathlib
@@ -66,6 +67,49 @@ class Client:
             value = json.load(response)
         self.csrf = value.get('csrf_token', self.csrf)
         return value
+
+
+def stage_test_update(asset, tag):
+    assert re.fullmatch(r'v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})', tag)
+    manifest = (asset.parent / 'SHA256SUMS').read_text(encoding='ascii')
+    checksums = dict(name_and_hash.split()[::-1] for name_and_hash in manifest.splitlines())
+    expected = checksums[asset.name]
+    assert hashlib.sha256(asset.read_bytes()).hexdigest() == expected
+    user = pwd.getpwnam('qinlin')
+    directory = pathlib.Path('/var/lib/qinlin/updates')
+    candidate = directory / ('candidate-' + tag + '.bin')
+    shutil.copyfile(asset, candidate)
+    candidate.chmod(0o700)
+    os.chown(candidate, user.pw_uid, user.pw_gid)
+    metadata = directory / 'pending.json'
+    metadata.write_text(json.dumps({'tag': tag, 'sha256': expected, 'size': asset.stat().st_size}))
+    metadata.chmod(0o600)
+    os.chown(metadata, user.pw_uid, user.pw_gid)
+
+
+def wait_for_update(client, busy, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        update = client.request('/updates')['update']
+        if update['state'] != busy:
+            return update
+        time.sleep(1)
+    raise AssertionError('update timed out in state ' + busy)
+
+
+def wait_for_version(target):
+    deadline = time.monotonic() + 60
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    url = config()['QINLIN_PUBLIC_URL'] + '/healthz'
+    while time.monotonic() < deadline:
+        try:
+            with opener.open(url, timeout=2) as response:
+                if json.load(response)['version'] == target:
+                    return
+        except OSError:
+            pass
+        time.sleep(1)
+    raise AssertionError('server did not start version ' + target)
 
 
 def manual_credentials(username, password):
@@ -163,48 +207,39 @@ def main():
         client.request('/updates/settings', 'PUT', preferences)
         print('PASS persisted account check interval, manual check and managed update settings', flush=True)
 
-        if os.environ.get('QINLIN_TEST_PUBLISHED_UPDATE') == '1':
-            client.request('/updates/check', 'POST', {})
-            deadline = time.monotonic() + 60
-            while True:
+        update_tag = os.environ.get('QINLIN_TEST_UPDATE_TAG')
+        if update_tag:
+            asset = os.environ.get('QINLIN_TEST_UPDATE_ASSET')
+            if asset:
+                stage_test_update(pathlib.Path(asset), update_tag)
                 update = client.request('/updates')['update']
-                if update['state'] not in ('checking',):
-                    break
-                assert time.monotonic() < deadline, 'published update check timed out'
-                time.sleep(1)
-            assert update['available'], 'published version must be newer than the test baseline: ' + str(update)
-            target = update['latest'].removeprefix('v')
-            client.request('/updates/download', 'POST', {})
-            deadline = time.monotonic() + 180
-            while True:
-                update = client.request('/updates')['update']
-                if update['state'] != 'downloading':
-                    break
-                assert time.monotonic() < deadline, 'published download timed out'
-                time.sleep(1)
-            assert update['ready'], 'published binary download or checksum failed: ' + str(update)
+            else:
+                for attempt in range(2):
+                    client.request('/updates/check', 'POST', {})
+                    update = wait_for_update(client, 'checking', 180)
+                    if update['available'] and update['latest'] == update_tag:
+                        break
+                    if attempt == 0:
+                        time.sleep(10)
+                assert update['available'] and update['latest'] == update_tag, (
+                    'expected the published release ' + update_tag + ': ' + str(update))
+                client.request('/updates/download', 'POST', {})
+                update = wait_for_update(client, 'downloading', 180)
+            assert update['ready'] and update['pending_version'] == update_tag, 'wrong update staged: ' + str(update)
             client.request('/updates/restart', 'POST', {})
-            deadline = time.monotonic() + 60
-            while True:
-                try:
-                    req = urllib.request.Request(config()['QINLIN_PUBLIC_URL'] + '/healthz')
-                    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=2) as response:
-                        if json.load(response)['version'] == target:
-                            break
-                except (OSError, urllib.error.URLError):
-                    pass
-                assert time.monotonic() < deadline, 'new version failed to start'
-                time.sleep(1)
+            wait_for_version(update_tag.removeprefix('v'))
             client = Client(username, password)
             assert client.request('/status')['account']['state'] == 'valid'
             assert marker.read_text() == 'preserve business data'
             assert CONFIG.read_bytes() == original_config_bytes
-            print('PASS published GitHub release check, checksum download, explicit restart, new version and data preservation', flush=True)
+            print('PASS checksummed update, explicit restart, exact target version and data preservation', flush=True)
 
         run(['/usr/local/bin/qinlin'], '1\n3\n0\n')
         assert subprocess.run(['systemctl', 'is-active', '--quiet', 'qinlin.service']).returncode != 0
         run(['/usr/local/bin/qinlin'], '2\n4\n0\n')
         assert run(['systemctl', 'is-active', 'qinlin.service']).strip() == 'active'
+        if update_tag:
+            wait_for_version(update_tag.removeprefix('v'))
         with socket.socket() as occupied:
             occupied.bind(('127.0.0.1', 0)); occupied.listen()
             run(['/usr/local/bin/qinlin'], '5\n70000\n5\n' + str(occupied.getsockname()[1]) + '\n0\n')

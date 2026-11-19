@@ -26,6 +26,7 @@ function renderUpdate(status){
   if(status.code==='update_not_published')message='仓库尚未发布正式版本，请稍后检查。';
   if(status.code==='update_check_failed')message='无法连接版本发布服务，当前版本继续运行。';
   if(status.code==='update_download_failed')message='下载或校验失败，当前版本继续运行，可重新下载。';
+  if(status.code==='update_assets_missing')message='GitHub Release 缺少适用于 '+status.platform+' 的程序或校验文件。';
   if(status.ready&&status.pending_version)message+=' 下载版本：'+status.pending_version+'。';
   $('update-message').textContent=message;
   $('update-checked-at').textContent=status.checked_at?'最近检查：'+date(status.checked_at):'';

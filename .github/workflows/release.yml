@@ -2,56 +2,113 @@ name: Publish release
 on:
   push:
     tags: ['v*']
+
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate release tag
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: '[[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]'
       - run: go test -race ./...
       - run: node --test web/*.test.cjs
-      - name: Build release programs
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_REVISION: ${{ github.sha }}
+      - name: Build binaries, offline packages and checksums
+        run: bash scripts/build-release.sh "$GITHUB_REF_NAME" dist
+      - name: Verify release checksums
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - name: Verify offline installation
+        run: sudo python3 tests/offline-smoke.py "dist/qinlin-${GITHUB_REF_NAME}-linux-amd64.tar.gz"
+      - name: Build the previous stable version for upgrade tests
         run: |
-          mkdir dist
-          for target in linux/amd64 linux/arm64 windows/amd64; do
-            platform=${target%/*}
-            architecture=${target#*/}
-            output="dist/qinlin-server_${platform}_${architecture}"
-            [[ $platform != windows ]] || output+=.exe
-            CGO_ENABLED=0 GOOS="$platform" GOARCH="$architecture" go build -trimpath \
-              -ldflags="-s -w -X qinlin/internal/version.Version=${RELEASE_TAG#v} -X qinlin/internal/version.Revision=$RELEASE_REVISION" \
-              -o "$output" ./cmd/qinlin
-          done
-          (cd dist && sha256sum qinlin-server_* > SHA256SUMS)
-      - name: Package offline Linux installers
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_REVISION: ${{ github.sha }}
-        run: python3 scripts/package-offline.py --version "$RELEASE_TAG" --revision "$RELEASE_REVISION" --binary-dir dist
-      - name: Verify offline installation and management
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: sudo python3 tests/offline-smoke.py "dist/qinlin-${RELEASE_TAG}-linux-amd64.tar.gz"
-      - name: Publish binaries and checksums
+          previous=$(git tag --merged HEAD --sort=-version:refname | python3 -c '
+          import re, sys
+          stable = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
+          target = tuple(map(int, stable.fullmatch(sys.argv[1]).groups()))
+          for line in sys.stdin:
+              tag = line.strip()
+              match = stable.fullmatch(tag)
+              if match and tuple(map(int, match.groups())) < target:
+                  print(tag)
+                  break
+          ' "$GITHUB_REF_NAME")
+          baseline="$PWD/bin/qinlin-update-baseline"
+          if [[ -n $previous ]]; then
+            old_source=$(mktemp -d)
+            git archive "$previous" | tar -xf - -C "$old_source"
+            (cd "$old_source" && CGO_ENABLED=0 go build -ldflags="-X qinlin/internal/version.Version=${previous#v}" -o "$baseline" ./cmd/qinlin)
+          else
+            CGO_ENABLED=0 go build -ldflags='-X qinlin/internal/version.Version=0.0.0' -o "$baseline" ./cmd/qinlin
+          fi
+      - name: Verify upgrade and data preservation before publication
+        run: |
+          sudo QINLIN_PREBUILT_BINARY="$PWD/bin/qinlin-update-baseline" \
+            QINLIN_TEST_UPDATE_TAG="$GITHUB_REF_NAME" \
+            QINLIN_TEST_UPDATE_ASSET="$PWD/dist/qinlin-server_linux_amd64" \
+            python3 tests/linux-smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-test-baseline
+          path: bin/qinlin-update-baseline
+          if-no-files-found: error
+
+  publish:
+    needs: package
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Verify assets and publish the stable release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --title "$RELEASE_TAG" --generate-notes
-      - name: Build an older version for the published update test
-        run: CGO_ENABLED=0 go build -ldflags='-X qinlin/internal/version.Version=0.2.99' -o bin/qinlin-update-baseline ./cmd/qinlin
-      - name: Verify the published download and restart on systemd
-        run: sudo QINLIN_PREBUILT_BINARY="$PWD/bin/qinlin-update-baseline" QINLIN_TEST_PUBLISHED_UPDATE=1 python3 tests/linux-smoke.py
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          if state=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft'); then
+            if [[ $state == false ]]; then
+              echo "Release $GITHUB_REF_NAME is already published."
+              exit 0
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber dist/*
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: upgrade-test-baseline
+          path: bin
+      - name: Verify the published download and restart through the admin API
+        run: |
+          chmod +x bin/qinlin-update-baseline
+          sudo QINLIN_PREBUILT_BINARY="$PWD/bin/qinlin-update-baseline" \
+            QINLIN_TEST_UPDATE_TAG="$GITHUB_REF_NAME" \
+            python3 tests/linux-smoke.py

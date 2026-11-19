@@ -67,7 +67,7 @@
       <section class="panel"><details id="updates-details"><summary><span class="step">05</span><span>服务更新</span><span id="current-version" class="version-label"></span><span id="update-state-badge" class="badge" hidden></span><span class="detail-arrow">＋</span></summary>
         <p id="latest-version" class="muted small"></p><p id="update-message" class="maintenance-result" role="status" aria-live="polite">正在读取版本信息。</p>
         <progress id="update-progress" hidden></progress><p id="update-download-size" class="muted small" hidden></p>
-        <div class="update-actions"><button id="update-check" class="secondary">检查更新</button><button id="update-download" class="secondary" disabled>下载新版本</button><button id="update-restart" class="primary" disabled>重启使用新版本</button></div>
+        <div class="update-actions"><button id="update-check" class="secondary">检查 GitHub 更新</button><button id="update-download" class="secondary" disabled>下载新版本</button><button id="update-restart" class="primary" disabled>重启使用新版本</button></div>
         <p id="update-checked-at" class="muted small"></p><p id="update-requirement" class="hint" hidden>当前为独立运行或容器部署，可检查正式版本。网页下载与重启更新适用于 Linux 安装版；容器部署请更新镜像。</p>
         <form id="update-settings" class="maintenance-form"><label class="option-row"><input id="update-auto-check" type="checkbox">每 6 小时自动检查更新</label><label class="option-row"><input id="update-auto-download" type="checkbox">发现新版本时自动下载</label><p class="muted small">下载会校验 SHA-256。下载完成后继续使用当前版本，等待你点击重启；新版本启动检查失败时恢复旧版本。</p><button id="save-update-settings" type="submit" class="secondary">保存更新设置</button></form>
         <p id="update-notes" class="release-notes" hidden></p><a id="update-release-link" target="_blank" rel="noopener noreferrer" hidden>查看版本发布说明</a>

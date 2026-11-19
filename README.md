@@ -2,7 +2,7 @@
 
 Go 单服务，面向自己的亲邻账号和已有门禁权限。管理页完成短信登录、门禁选择和令牌管理；iPhone 快捷指令通过一个 POST 请求开门，无需打开亲邻 App。
 
-React Native 手机端基础版支持本地模拟体验。Mac 上的原生构建与 WidgetKit 开发步骤见交接文档。[手机端启动](mobile/README.md) · [iOS 开发交接](mobile/IOS-HANDOFF.md)
+iOS 手机端支持短信登录、门禁、分享和 WidgetKit 小组件，也可在 Mac 上连接模拟服务。[手机端启动](mobile/README.md) · [iOS 开发交接](mobile/IOS-HANDOFF.md)
 
 **当前状态：模拟 HTTP 流程、自动化安装和升级验证已完成；本地已有账号的定时只读检测已收到成功响应。实际开门效果和 iPhone 体验仍需现场验证。** 亲邻协议依据公开项目移植，非官方 API；没有实现未经证实的自动续期，亲邻会话失效后，在管理页重新短信登录。
 
@@ -91,7 +91,18 @@ Linux 安装版在后台「服务更新」显示当前版本、最新正式版�
 
 网页更新适用于 **Linux amd64/arm64 的 systemd 安装版**。已有旧安装需要先重新运行一次 `bootstrap.sh` 或 `install.sh`，以安装新版进程管理方式，之后可在网页下载和重启更新。Windows 独立运行及 Docker 可查看正式版本，更新方式分别为替换程序、重新构建或更新镜像。
 
-维护者发布时使用新的 `v主版本.次版本.修订号` Git 标签；`.github/workflows/release.yml` 会测试并发布 Linux amd64、Linux arm64、Windows amd64 程序和校验文件，并实际验证从旧版本下载、重启升级及保留数据。升级中的数据库变更必须保持与上一版兼容，确保程序回滚仍可读取原数据。
+### 发布服务器版本
+
+将要发布的提交推送到 GitHub，再给该提交打新的正式版本标签。以下命令以 `v0.4.0` 为例。
+
+```bash
+git tag -a v0.4.0 -m "Release v0.4.0"
+git push origin v0.4.0
+```
+
+GitHub Actions 会运行 Go 和前端测试，打包 Linux amd64、Linux arm64、Windows amd64 程序以及两个 Linux 离线安装包。通过校验和、离线安装和升级测试后，Actions 将附件上传到 Release 草稿并发布为最新正式版。发布后继续验证后台能从 GitHub 下载该标签的程序、重启到目标版本并保留数据。可在 Actions 查看各阶段结果，也可在本地用 `bash scripts/build-release.sh v0.4.0 dist` 生成同样格式的产物。
+
+发布后在服务器管理后台打开「服务更新」，依次执行「检查 GitHub 更新」「下载新版本」「重启使用新版本」。更新源为本仓库的最新正式 Release。离线包首次安装默认关闭自动检查和自动下载，服务器能访问 GitHub 时仍可手动更新。修改数据库结构时保持与上一版兼容，确保健康检查失败后的回滚程序仍能读取原数据。
 
 ## 本地源码启动
 
@@ -237,6 +248,8 @@ Compose 默认将应用发布到服务器的 `127.0.0.1:8080`。通过 IP 直接
 | `QINLIN_COOLDOWN` | 默认 `5s`，从上次请求结束后计算；至少 `1s` |
 | `QINLIN_UPSTREAM_TIMEOUT` | 单次亲邻请求超时，默认 `8s`，范围 `1s`～`30s` |
 | `QINLIN_MOCK` | `true` 为完全本地模拟，默认 `false` |
+| `QINLIN_MOBILE` | `true` 启用「亲邻快开」App 的服务器接口，默认 `false` |
+| `QINLIN_MOBILE` | `true` 启用手机 API，默认 `false`。App 支持 HTTP 和 HTTPS 服务地址 |
 
 不要提交 `.env`、数据库及数据卷；仓库已配置忽略。Linux 文件使用受限权限；Windows 上仍应使用账户和 NTFS 权限限制访问。
 

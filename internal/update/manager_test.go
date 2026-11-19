@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +26,7 @@ func testManager(t *testing.T, corrupt bool) *Manager {
 	m.managed = true
 	data := "test release executable"
 	sum := sha256.Sum256([]byte(data))
-	name := "qinlin-server_" + runtime.GOOS + "_" + runtime.GOARCH
+	name := binaryAssetName()
 	manifest := hex.EncodeToString(sum[:]) + "  " + name + "\n"
 	release := Release{Tag: "v9.0.0", Assets: []Asset{{Name: name, Size: int64(len(data))}, {Name: "SHA256SUMS", Size: int64(len(manifest))}}}
 	m.source.Client = &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
@@ -156,6 +155,28 @@ func TestRestartRevalidatesDownloadedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := m.RequestRestart(); err != ErrNotReady {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckRejectsNewReleaseWithoutPlatformBinary(t *testing.T) {
+	m := testManager(t, false)
+	m.source.Client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/repos/"+Repository+"/releases/latest" {
+			t.Errorf("unexpected asset request: %s", r.URL.Path)
+		}
+		body := `{"tag_name":"v9.0.0","assets":[{"name":"SHA256SUMS","size":128}]}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	if err := m.BeginCheck(); err != nil {
+		t.Fatal(err)
+	}
+	awaitState(t, m, "error")
+	status := m.Status()
+	if status.Latest != "v9.0.0" || status.Available || status.Code != "update_assets_missing" {
+		t.Fatal(status)
+	}
+	if err := m.BeginDownload(); err != ErrNotReady {
 		t.Fatal(err)
 	}
 }

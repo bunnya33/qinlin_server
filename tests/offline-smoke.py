@@ -68,7 +68,8 @@ os.execv(os.environ['QINLIN_TEST_REAL_CURL'], [os.environ['QINLIN_TEST_REAL_CURL
                    QINLIN_TEST_OFFLINE_DIR=str(package), QINLIN_TEST_REAL_CURL=real_curl,
                    QINLIN_TEST_EXTERNAL_LOG=str(log))
         env.pop('QINLIN_TEST_BOOTSTRAP', None)
-        env.pop('QINLIN_TEST_PUBLISHED_UPDATE', None)
+        env.pop('QINLIN_TEST_UPDATE_TAG', None)
+        env.pop('QINLIN_TEST_UPDATE_ASSET', None)
         subprocess.run([sys.executable, str(ROOT / 'tests/linux-smoke.py')], env=env, check=True)
         assert not log.exists(), 'offline installation attempted external tools/network: ' + log.read_text()
         print('PASS complete installation and management without GitHub, Go or package-manager downloads', flush=True)

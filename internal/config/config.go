@@ -19,7 +19,7 @@ type Config struct {
 	AdminUsername, AdminPasswordHash          string
 	Key                                       []byte
 	Cooldown, UpstreamTimeout                 time.Duration
-	Mock                                      bool
+	Mock, Mobile                              bool
 }
 
 // Load accepts simple KEY=value entries; existing process variables take priority.
@@ -78,6 +78,7 @@ func parse(get func(string, string) string) (Config, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return c, errors.New("QINLIN_PUBLIC_URL must use HTTP or HTTPS")
 	}
+	c.Mobile = get("QINLIN_MOBILE", "") == "true"
 	c.Cooldown, err = time.ParseDuration(get("QINLIN_COOLDOWN", "5s"))
 	if err != nil || c.Cooldown < time.Second {
 		return c, errors.New("QINLIN_COOLDOWN must be at least 1s")

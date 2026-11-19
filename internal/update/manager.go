@@ -57,6 +57,14 @@ type Manager struct {
 	restartAt int64
 }
 
+func binaryAssetName() string {
+	return "qinlin-server_" + runtime.GOOS + "_" + runtime.GOARCH
+}
+
+func hasUpdateAssets(release Release) bool {
+	return release.downloadable(binaryAssetName()) && release.downloadable("SHA256SUMS")
+}
+
 func New(dir string, managed bool) (*Manager, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
@@ -150,6 +158,11 @@ func (m *Manager) check() {
 	if m.status.Available {
 		m.status.State = "available"
 	}
+	if m.managed && m.status.Available && !hasUpdateAssets(release) {
+		m.status.Available = false
+		m.status.State = "error"
+		m.status.Code = "update_assets_missing"
+	}
 	auto := m.status.Available && m.status.Preferences.AutoDownload && m.managed
 	var pending Candidate
 	if ReadJSON(filepath.Join(m.dir, "pending.json"), &pending) == nil && pending.Valid() && pending.Tag == release.Tag && Verify(pending.Path(m.dir), pending) == nil {
@@ -167,7 +180,7 @@ func (m *Manager) BeginDownload() error {
 	if !m.managed {
 		return ErrUnsupported
 	}
-	if !Newer(m.release.Tag, version.Version) {
+	if !Newer(m.release.Tag, version.Version) || !hasUpdateAssets(m.release) {
 		return ErrNotReady
 	}
 	if err := m.begin("downloading"); err != nil {
@@ -206,7 +219,7 @@ func (m *Manager) download(r Release) {
 	}
 }
 func (m *Manager) stage(ctx context.Context, r Release) error {
-	name := "qinlin-server_" + runtime.GOOS + "_" + runtime.GOARCH
+	name := binaryAssetName()
 	digest, err := m.source.Checksum(ctx, r, name)
 	if err != nil {
 		return err

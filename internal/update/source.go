@@ -15,6 +15,7 @@ import (
 
 const Repository = "bunnya33/qinlin_server"
 const MaxBinarySize int64 = 128 << 20
+const maxChecksumSize int64 = 128 << 10
 
 var ErrNoRelease = errors.New("update_not_published")
 
@@ -38,6 +39,18 @@ func (r Release) Asset(name string) (Asset, bool) {
 		}
 	}
 	return Asset{}, false
+}
+
+func assetLimit(name string) int64 {
+	if name == "SHA256SUMS" {
+		return maxChecksumSize
+	}
+	return MaxBinarySize
+}
+
+func (r Release) downloadable(name string) bool {
+	asset, ok := r.Asset(name)
+	return ok && asset.Size > 0 && asset.Size <= assetLimit(name)
 }
 
 type Source struct{ Client *http.Client }
@@ -109,10 +122,7 @@ func (s Source) Download(ctx context.Context, r Release, name string) (io.ReadCl
 	if !ok {
 		return nil, 0, errors.New("release asset missing")
 	}
-	limit := MaxBinarySize
-	if name == "SHA256SUMS" {
-		limit = 128 << 10
-	}
+	limit := assetLimit(name)
 	if a.Size <= 0 || a.Size > limit {
 		return nil, 0, errors.New("invalid release asset size")
 	}
@@ -132,7 +142,7 @@ func (s Source) Checksum(ctx context.Context, r Release, name string) (string, e
 		return "", err
 	}
 	defer body.Close()
-	scanner := bufio.NewScanner(io.LimitReader(body, 128<<10+1))
+	scanner := bufio.NewScanner(io.LimitReader(body, maxChecksumSize+1))
 	found := ""
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
