@@ -3,51 +3,142 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0e2420">
+  <meta name="theme-color" content="#faf9f6">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="亲邻开门">
   <meta name="qinlin-service-url" content="{{.PublicURL}}">
-  <title>亲邻 · 我的门禁</title>
+  <title>亲邻开门 · 管理后台</title>
   <link rel="stylesheet" href="/app.css">
   <script src="/request-id.js" defer></script>
+  <script src="/dashboard.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/maintenance.js" defer></script>
 </head>
 <body>
-  <main>
-    <header><a class="brand" href="/" aria-label="亲邻开门首页"><span class="brand-icon">↗</span> 亲邻<span class="brand-sub">个人门禁</span></a><button id="logout" class="quiet" hidden>退出管理</button></header>
-    <section class="intro"><p class="eyebrow">YOUR WAY HOME</p><h1>回家，少一步。</h1><p class="subtitle">选择你的门，或用 iPhone 快捷指令轻松开门。</p></section>
-    <div id="notice" role="status" aria-live="polite" hidden><span id="notice-message"></span><a id="service-link" href="{{.PublicURL}}" target="_blank" rel="noopener noreferrer" hidden>直接打开服务</a></div>
-    <section id="login-panel" class="panel" hidden>
-      <div class="section-title"><span class="step">01</span><h2>进入你的工作台</h2></div>
-      {{if .PasswordLogin}}
-      <p class="muted">输入安装时生成或在服务器管理菜单中设置的账号密码。</p>
-      <form id="site-login"><label for="admin-username">管理员账号</label><input id="admin-username" autocomplete="username" required><label for="admin-password">管理员密码</label><input id="admin-password" type="password" autocomplete="current-password" required><button class="primary" type="submit">进入管理</button></form>
-      {{else}}
-      <p class="muted">输入服务器 .env 中的管理密钥。</p>
-      <form id="site-login"><label for="admin-token">管理密钥</label><input id="admin-token" type="password" autocomplete="current-password" required placeholder="QINLIN_ADMIN_TOKEN"><button class="primary" type="submit">进入管理</button></form>
-      {{end}}
-    </section>
-    <div id="workspace" hidden>
-      <section class="status-strip"><span class="dot"></span><div class="status-copy"><strong id="account-state">正在读取状态</strong><p id="verified-at"></p><p id="account-check-summary" role="status" aria-live="polite"></p></div><button id="account-check-now" class="secondary">立即检测</button><span id="mode" class="badge" hidden>模拟模式</span></section>
-      <section id="door-panel" class="panel">
-        <div class="section-title"><span class="step">01</span><h2>我的门禁</h2><button id="refresh" class="quiet right">刷新门禁</button></div>
-        <p class="muted">启用需要的门禁后，即可开门或配置快捷指令。开门结果显示在对应门禁卡片中。</p>
-        <div id="doors" class="door-list"></div>
-        <p id="door-empty" class="empty">关联亲邻账号后，你有权限使用的门禁会出现在这里。</p>
-      </section>
-      <section class="panel">
-        <details id="account-details"><summary><span class="step">02</span><span>亲邻账号与检测设置</span><span class="detail-arrow">＋</span></summary>
-          <form id="check-settings" class="maintenance-form"><label for="check-interval">自动检测间隔（分钟）</label><div class="input-row"><input id="check-interval" type="number" min="0" max="1440" step="1" value="15" required><button type="submit" class="secondary">保存间隔</button></div><p class="muted small">可设 5～1440 分钟，填写 0 关闭。服务会查询门禁权限来检测登录状态，过期后暂停检测，等待重新短信登录。</p><p id="account-check-result" class="maintenance-result" role="status" aria-live="polite"></p></form>
-          <p class="muted">会话失效时在这里重新登录。验证码仅用于本次登录。</p>
-          <p id="mock-help" class="hint" hidden>模拟模式不会发送短信。输入任意合法格式手机号及验证码 123456。</p>
-          <form id="account-login"><label for="phone">亲邻账号手机号</label><div class="input-row"><input id="phone" type="tel" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" maxlength="11" required placeholder="11 位手机号"><button type="button" id="send-sms" class="secondary">获取验证码</button></div><label for="sms-code">短信验证码</label><input id="sms-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,8}" maxlength="8" required placeholder="输入验证码"><button class="primary" type="submit">登录并获取门禁</button></form>
-          <button id="disconnect" class="text-danger">断开账号并撤销快捷指令令牌</button>
-        </details>
-      </section>
-      <section class="panel">
-        <details id="shortcut-details"><summary><span class="step">03</span><span>iPhone 快捷指令</span><span class="detail-arrow">＋</span></summary>
-          <p class="muted">在门禁卡片上点击「配置快捷指令」，生成该门专用的令牌。有效期 90 天，可随时撤销。</p>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-door" viewBox="0 0 24 24"><path d="M3 21h18M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M14 12h.01"/></symbol>
+    <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/></symbol>
+    <symbol id="icon-link" viewBox="0 0 24 24"><path d="M10 13.5a4 4 0 0 0 6 .3l4-4a4 4 0 1 0-5.7-5.6l-2 2M14 10.5a4 4 0 0 0-6-.3l-4 4a4 4 0 1 0 5.7 5.6l2-2"/></symbol>
+    <symbol id="icon-zap" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-12h-7z"/></symbol>
+    <symbol id="icon-list" viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11M3 5h1M3 12h1M3 19h1"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M6 17a4 4 0 0 1-.5-8 6 6 0 0 1 11.5-1A4.7 4.7 0 0 1 18 17M12 11v11m-3-3 3 3 3-3"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5.8 8a7 7 0 0 1 11.6-2.1L20 9M4 15l2.6 3.1A7 7 0 0 0 18.2 16"/></symbol>
+  </svg>
+
+  <div id="workspace" class="dashboard" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="#overview" aria-label="亲邻开门总览"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-door"/></svg></span><span><strong>亲邻开门</strong><small>QINLIN</small></span></a>
+      <nav class="sidebar-nav" aria-label="后台导航">
+        <div class="nav-group"><span>工作台</span>
+          <a href="#overview" data-destination="overview"><svg class="icon" aria-hidden="true"><use href="#icon-grid"/></svg>总览</a>
+          <a href="#activity" data-destination="activity"><svg class="icon" aria-hidden="true"><use href="#icon-list"/></svg>开门记录</a>
+        </div>
+        <div class="nav-group"><span>门禁管理</span>
+          <a href="#accounts" data-destination="accounts"><svg class="icon" aria-hidden="true"><use href="#icon-user"/></svg>亲邻账号</a>
+          <a href="#doors" data-destination="doors"><svg class="icon" aria-hidden="true"><use href="#icon-door"/></svg>门禁管理</a>
+          <a href="#shares" data-destination="shares"><svg class="icon" aria-hidden="true"><use href="#icon-link"/></svg>分享接口</a>
+          <a href="#shortcuts" data-destination="shortcuts"><svg class="icon" aria-hidden="true"><use href="#icon-zap"/></svg>快捷指令</a>
+        </div>
+        <div class="nav-group"><span>系统</span>
+          <a href="#updates" data-destination="updates"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg>服务更新</a>
+        </div>
+      </nav>
+      <div class="sidebar-footer"><span class="icon-tile neutral"><svg class="icon" aria-hidden="true"><use href="#icon-user"/></svg></span><span><strong>管理员</strong><small>管理后台</small></span></div>
+    </aside>
+    <main class="dashboard-main" id="dashboard-main">
+      <header class="topbar"><p class="breadcrumb"><span>控制台</span><span aria-hidden="true">›</span><strong id="page-crumb">总览</strong></p><span id="mode" class="badge peach" hidden>模拟模式</span><button id="logout" class="quiet" hidden>退出管理</button></header>
+      <div class="main-content">
+        <div id="notice" role="status" aria-live="polite" hidden><span id="notice-message"></span><a id="service-link" href="{{.PublicURL}}" target="_blank" rel="noopener noreferrer" hidden>直接打开服务</a></div>
+        <section id="view-overview" data-page>
+          <div class="page-head"><div><h1>管理总览</h1><p class="muted">查看账号授权、门禁服务与开门记录</p></div><button id="account-check-now" class="secondary" disabled><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>立即检测</button></div>
+          <div class="overview-grid">
+            <section class="panel summary-card status-strip">
+              <header class="card-heading"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-user"/></svg></span><h2>亲邻账号</h2></header>
+              <div class="summary-row"><strong>后台账号</strong><span id="account-state" class="badge" data-tone="neutral">正在读取</span></div>
+              <p id="verified-at" class="small muted"></p>
+              <div id="overview-mobile-accounts"></div>
+              <div class="summary-footer"><p id="account-check-summary" class="small muted" role="status" aria-live="polite"></p><a href="#accounts">账号管理 ›</a></div>
+            </section>
+            <section class="panel summary-card">
+              <header class="card-heading"><span class="icon-tile peach"><svg class="icon" aria-hidden="true"><use href="#icon-door"/></svg></span><h2>门禁服务</h2></header>
+              <div id="overview-doors"><p class="small muted">正在读取门禁</p></div>
+              <div class="summary-footer"><a href="#doors">管理门禁 ›</a></div>
+            </section>
+            <section class="panel summary-card">
+              <header class="card-heading"><span class="icon-tile green"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg></span><h2>服务更新</h2></header>
+              <div class="summary-row"><strong id="overview-version">正在读取</strong><span id="overview-update-status" class="badge" data-tone="neutral" hidden></span></div>
+              <p id="overview-update-setting" class="small muted"></p>
+              <div class="summary-footer"><a href="#updates">查看更新 ›</a></div>
+            </section>
+          </div>
+          <section class="panel table-panel">
+            <header class="panel-heading"><h2>最近开门请求</h2><a href="#activity">查看记录 ›</a></header>
+            <div id="overview-operations"></div>
+            <p class="table-footer small muted">请求已受理后，请确认门的实际状态。</p>
+          </section>
+        </section>
+
+        <section id="view-doors" data-page hidden>
+          <div class="page-head"><div><h1>门禁管理</h1><p class="muted">管理后台关联账号的门禁权限与开门操作</p></div><button id="refresh" class="secondary"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>刷新门禁</button></div>
+          <section id="door-panel">
+            <div id="doors" class="door-list"></div>
+            <p id="door-empty" class="panel empty">关联亲邻账号后，你有权限使用的门禁会出现在这里。<a href="#accounts">关联账号</a></p>
+          </section>
+        </section>
+
+        <section id="view-accounts" data-page hidden>
+          <div class="page-head"><div><h1>亲邻账号</h1><p class="muted">关联、续授权和检测设置</p></div></div>
+          <div class="account-grid">
+            <section class="panel content-panel">
+              <header class="card-heading"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-user"/></svg></span><h2>后台关联账号</h2><span id="settings-account-state" class="badge" data-tone="neutral"></span></header>
+              <p class="muted">输入亲邻手机号和短信验证码进行授权。</p>
+              <p id="mock-help" class="hint" hidden>模拟模式使用验证码 123456。</p>
+              <form id="account-login">
+                <label for="phone">亲邻账号手机号</label>
+                <div class="input-row"><input id="phone" type="tel" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" maxlength="11" required placeholder="11 位手机号"><button type="button" id="send-sms" class="secondary">获取验证码</button></div>
+                <label for="sms-code">短信验证码</label>
+                <input id="sms-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,8}" maxlength="8" required placeholder="输入验证码">
+                <button class="primary" type="submit">登录并获取门禁</button>
+              </form>
+              <button id="disconnect" class="text-danger">断开账号并撤销快捷指令令牌</button>
+            </section>
+            <section class="panel content-panel">
+              <header class="card-heading"><span class="icon-tile peach"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg></span><h2>自动检测</h2></header>
+              <form id="check-settings">
+                <label for="check-interval">自动检测间隔（分钟）</label>
+                <div class="input-row"><input id="check-interval" type="number" min="0" max="1440" step="1" value="15" required><button type="submit" class="secondary">保存间隔</button></div>
+                <p class="muted small">可设 5～1440 分钟，填写 0 关闭。亲邻授权过期后暂停检测，等待重新短信登录。</p>
+                <p id="account-check-result" class="maintenance-result" role="status" aria-live="polite"></p>
+              </form>
+            </section>
+          </div>
+          <section class="panel table-panel mobile-accounts">
+            <header class="panel-heading"><h2>手机端账号</h2><a href="#shares">查看分享接口 ›</a></header>
+            <div id="mobile-accounts"><p class="table-footer muted">正在读取账号</p></div>
+          </section>
+        </section>
+
+        <section id="view-shares" data-page hidden>
+          <div class="page-head"><div><h1>分享接口</h1><p class="muted">查看手机端生成的接口归属、绑定门禁与当前状态</p></div><button id="reload-shares" class="secondary"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>刷新列表</button></div>
+          <div class="share-layout" id="share-layout">
+            <section class="panel table-panel">
+              <div class="share-toolbar">
+                <select id="share-account-filter" aria-label="按账号筛选"><option value="">全部账号</option></select>
+                <select id="share-door-filter" aria-label="按门禁筛选"><option value="">全部门禁</option></select>
+                <select id="share-state-filter" aria-label="按状态筛选"><option value="">全部状态</option><option value="ready">可用</option><option value="paused">已暂停</option><option value="denied">门无权限</option><option value="expired">待重新授权</option><option value="disabled">手机服务未启用</option></select>
+              </div>
+              <div id="share-list"><p class="table-footer muted">正在读取接口</p></div>
+            </section>
+            <aside id="share-inspector" class="panel inspector" aria-label="接口详情" hidden></aside>
+          </div>
+        </section>
+
+        <section id="view-shortcuts" data-page hidden>
+          <div class="page-head"><div><h1>iPhone 快捷指令</h1><p class="muted">门禁专用的快捷指令令牌</p></div><a class="secondary button" href="#doors">管理门禁</a></div>
+          <section class="panel content-panel narrow">
+            <h2>配置令牌</h2>
+            <p class="muted">在门禁页点击「配置快捷指令」生成。令牌有效期 90 天，可随时撤销。</p>
           <div id="shortcut-result" hidden>
             <p class="hint">令牌仅显示这一次，请复制到自己的快捷指令。关闭或刷新页面后无法再次查看。</p>
             <label for="shortcut-url">URL</label><div class="copy-row"><input id="shortcut-url" readonly><button id="copy-url" class="secondary">复制</button></div>
@@ -57,23 +148,47 @@
             <button id="hide-secret" class="secondary">已保存，隐藏令牌</button>
           </div>
           <div id="tokens" class="token-list"></div>
-        </details>
-      </section>
-      <section class="panel"><details open><summary><span class="step">04</span><span>最近开门结果</span><span class="detail-arrow">＋</span></summary>
-        <p class="muted small">显示亲邻返回的请求结果，暂未接入门锁实际状态反馈。仅保留最近 7 天，最多显示 50 条。</p>
-        <div class="operations-toolbar"><span id="operations-updated" class="muted small" role="status" aria-live="polite"></span><button id="refresh-operations" class="secondary">刷新结果</button></div>
-        <div id="operations"></div>
-      </details></section>
-      <section class="panel"><details id="updates-details"><summary><span class="step">05</span><span>服务更新</span><span id="current-version" class="version-label"></span><span id="update-state-badge" class="badge" hidden></span><span class="detail-arrow">＋</span></summary>
+          </section>
+        </section>
+
+        <section id="view-activity" data-page hidden>
+          <div class="page-head"><div><h1>开门记录</h1><p class="muted">后台和快捷指令最近 7 天的开门结果，最多 50 条</p></div><button id="refresh-operations" class="secondary"><svg class="icon" aria-hidden="true"><use href="#icon-refresh"/></svg>刷新结果</button></div>
+          <section class="panel table-panel">
+            <header class="panel-heading"><h2>开门请求</h2><span id="operations-updated" class="small muted" role="status" aria-live="polite"></span></header>
+            <div id="operations"></div>
+            <p class="table-footer small muted">请求已受理后，请确认门的实际状态。</p>
+          </section>
+        </section>
+
+        <section id="view-updates" data-page hidden>
+          <div class="page-head"><div><h1>服务更新</h1><p class="muted">检查正式版本并管理下载与重启</p></div></div>
+          <section class="panel content-panel narrow">
+            <header class="card-heading"><span class="icon-tile green"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg></span><h2>当前版本</h2><strong id="current-version"></strong><span id="update-state-badge" class="badge peach" hidden></span></header>
         <p id="latest-version" class="muted small"></p><p id="update-message" class="maintenance-result" role="status" aria-live="polite">正在读取版本信息。</p>
         <progress id="update-progress" hidden></progress><p id="update-download-size" class="muted small" hidden></p>
         <div class="update-actions"><button id="update-check" class="secondary">检查 GitHub 更新</button><button id="update-download" class="secondary" disabled>下载新版本</button><button id="update-restart" class="primary" disabled>重启使用新版本</button></div>
         <p id="update-checked-at" class="muted small"></p><p id="update-requirement" class="hint" hidden>当前为独立运行或容器部署，可检查正式版本。网页下载与重启更新适用于 Linux 安装版；容器部署请更新镜像。</p>
         <form id="update-settings" class="maintenance-form"><label class="option-row"><input id="update-auto-check" type="checkbox">每 6 小时自动检查更新</label><label class="option-row"><input id="update-auto-download" type="checkbox">发现新版本时自动下载</label><p class="muted small">下载会校验 SHA-256。下载完成后继续使用当前版本，等待你点击重启；新版本启动检查失败时恢复旧版本。</p><button id="save-update-settings" type="submit" class="secondary">保存更新设置</button></form>
         <p id="update-notes" class="release-notes" hidden></p><a id="update-release-link" target="_blank" rel="noopener noreferrer" hidden>查看版本发布说明</a>
-      </details></section>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <main id="login-panel" class="login-screen" hidden>
+    <div class="login-inner">
+      <div class="brand"><span class="icon-tile"><svg class="icon" aria-hidden="true"><use href="#icon-door"/></svg></span><span><strong>亲邻开门</strong><small>QINLIN</small></span></div>
+      <section class="panel login-card">
+        <h1>登录管理后台</h1>
+        <div id="login-notice-slot"></div>
+        {{if .PasswordLogin}}
+        <form id="site-login"><label for="admin-username">管理员账号</label><input id="admin-username" autocomplete="username" required><label for="admin-password">管理员密码</label><input id="admin-password" type="password" autocomplete="current-password" required><button class="primary" type="submit">进入管理</button></form>
+        {{else}}
+        <form id="site-login"><label for="admin-token">管理密钥</label><input id="admin-token" type="password" autocomplete="current-password" required placeholder="QINLIN_ADMIN_TOKEN"><button class="primary" type="submit">进入管理</button></form>
+        {{end}}
+      </section>
     </div>
-    <footer>只为你的日常通行。<span>亲邻会话保存在服务器端。</span></footer>
   </main>
 </body>
 </html>

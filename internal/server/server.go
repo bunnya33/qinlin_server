@@ -96,6 +96,9 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /maintenance.js", func(w http.ResponseWriter, r *http.Request) {
 		s.asset(w, "maintenance.js", "text/javascript; charset=utf-8")
 	})
+	m.HandleFunc("GET /dashboard.js", func(w http.ResponseWriter, r *http.Request) {
+		s.asset(w, "dashboard.js", "text/javascript; charset=utf-8")
+	})
 	m.HandleFunc("POST /api/v1/auth/login", s.login)
 	m.HandleFunc("GET /api/v1/auth/session", s.withAuth(true, s.authSession))
 	m.HandleFunc("POST /api/v1/auth/logout", s.withAuth(true, s.logout))
@@ -114,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/tokens", s.withAuth(true, s.createToken))
 	m.HandleFunc("DELETE /api/v1/tokens/{token}", s.withAuth(true, s.revokeToken))
 	m.HandleFunc("GET /api/v1/operations", s.withAuth(true, s.operations))
+	m.HandleFunc("GET /api/v1/admin/mobile", s.withAuth(true, s.adminMobileOverview))
 	m.HandleFunc("GET /api/v1/updates", s.withAuth(true, s.getUpdates))
 	m.HandleFunc("PUT /api/v1/updates/settings", s.withAuth(true, s.setUpdatePreferences))
 	m.HandleFunc("POST /api/v1/updates/{action}", s.withAuth(true, s.updateAction))

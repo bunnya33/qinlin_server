@@ -19,6 +19,14 @@ function renderAccountCheck(check){
 function renderUpdate(status){
   const busy=['checking','downloading','restarting'].includes(status.state);
   $('current-version').textContent='v'+status.current.version;
+  $('overview-version').textContent=$('current-version').textContent;
+  const summary=$('overview-update-status');
+  summary.hidden=false;
+  summary.textContent=status.ready?'待重启':status.available?'有新版本':status.state==='current'?'已是最新版':busy?'处理中':status.state==='error'?'检查异常':'尚未检查';
+  summary.dataset.tone=status.ready||status.available?'peach':status.state==='current'?'green':'neutral';
+  $('overview-update-setting').textContent=status.managed
+    ?(status.preferences.auto_check?'自动检查已开启':'自动检查已关闭')
+    :'支持手动检查正式版本';
   $('update-state-badge').textContent=status.ready?'待重启':status.available?'有新版本':'';
   $('update-state-badge').hidden=!status.ready&&!status.available;
   $('latest-version').textContent=status.latest?'最新正式版本：'+status.latest:status.pending_version?'下载版本：'+status.pending_version:'发布来源：GitHub · bunnya33/qinlin_server';
@@ -44,13 +52,26 @@ function renderUpdate(status){
   $('update-release-link').hidden=!status.release_url;
   if(status.release_url)$('update-release-link').href=status.release_url;
   if(updatePoll){clearTimeout(updatePoll);updatePoll=null;}
-  if(busy&&!waitingForRestart)updatePoll=setTimeout(()=>refreshUpdate().catch(()=>{}),2000);
+  if(busy&&!waitingForRestart&&!$('workspace').hidden)updatePoll=setTimeout(()=>refreshUpdate().catch(()=>{}),2000);
 }
-async function refreshUpdate(){const result=await api('/updates');renderUpdate(result.update);}
+function resetMaintenance(){
+  clearTimeout(updatePoll);
+  updatePoll=null;
+  checkSettingsDirty=false;
+  updateSettingsDirty=false;
+  lastCheckStatus=null;
+}
+async function refreshUpdate(){
+  const result=await api('/updates');
+  if(!$('workspace').hidden)renderUpdate(result.update);
+}
 async function loadMaintenance(){
   if(maintenanceLoading||$('workspace').hidden||waitingForRestart)return;
   maintenanceLoading=true;
-  try{const [check,updates]=await Promise.all([api('/account/check'),api('/updates')]);renderAccountCheck(check.check);renderUpdate(updates.update);}
+  try{
+    const [check,updates]=await Promise.all([api('/account/check'),api('/updates')]);
+    if(!$('workspace').hidden){renderAccountCheck(check.check);renderUpdate(updates.update);}
+  }
   catch(error){if(!$('workspace').hidden)$('account-check-summary').textContent='检测设置暂未读取，稍后会重新读取。';}
   finally{maintenanceLoading=false;}
 }
@@ -95,7 +116,8 @@ $('update-restart').addEventListener('click',()=>busy($('update-restart'),async(
       const response=await fetch('/healthz',{cache:'no-store'}),health=await response.json();
       recovered=health.ok;
       if(health.ok&&health.version===target.replace(/^v/,'')){
-        waitingForRestart=false;showLogin();notice('更新完成，当前版本 v'+health.version+'。请重新登录管理页。');return;
+        location.reload();
+        return;
       }
     }catch{}
   }

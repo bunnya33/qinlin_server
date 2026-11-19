@@ -52,6 +52,61 @@ type MobileShare struct {
 	URL     string `json:"url,omitempty"`
 }
 
+type AdminMobileAccount struct {
+	ID           string `json:"id"`
+	MaskedPhone  string `json:"masked_phone"`
+	AuthorizedAt int64  `json:"authorized_at"`
+	CheckedAt    int64  `json:"checked_at"`
+	Expired      bool   `json:"expired"`
+}
+
+type AdminMobileShare struct {
+	ID            string `json:"id"`
+	AccountID     string `json:"account_id"`
+	Name          string `json:"name"`
+	DoorID        string `json:"door_id"`
+	DoorName      string `json:"door_name"`
+	Community     string `json:"community"`
+	DoorAvailable bool   `json:"door_available"`
+	Enabled       bool   `json:"enabled"`
+}
+
+func (s *Store) AdminMobileOverview() ([]AdminMobileAccount, []AdminMobileShare, error) {
+	rows, err := s.db.Query(`
+		SELECT a.id, a.masked_phone, a.authorized_at, a.checked_at, a.expired,
+			COALESCE(m.id,''), COALESCE(m.name,''), COALESCE(m.door_id,''),
+			COALESCE(d.name,''), COALESCE(d.community,''), COALESCE(d.available,0),
+			COALESCE(m.enabled,0)
+		FROM mobile_accounts a
+		LEFT JOIN mobile_shares m ON m.account_id=a.id
+		LEFT JOIN mobile_doors d ON d.account_id=a.id AND d.id=m.door_id
+		WHERE a.authorized_at>0
+		ORDER BY a.authorized_at DESC, a.id, m.rowid DESC`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	accounts := []AdminMobileAccount{}
+	shares := []AdminMobileShare{}
+	for rows.Next() {
+		var a AdminMobileAccount
+		var share AdminMobileShare
+		if err := rows.Scan(&a.ID, &a.MaskedPhone, &a.AuthorizedAt, &a.CheckedAt, &a.Expired,
+			&share.ID, &share.Name, &share.DoorID, &share.DoorName, &share.Community,
+			&share.DoorAvailable, &share.Enabled); err != nil {
+			return nil, nil, err
+		}
+		if len(accounts) == 0 || accounts[len(accounts)-1].ID != a.ID {
+			accounts = append(accounts, a)
+		}
+		if share.ID != "" {
+			share.AccountID = a.ID
+			shares = append(shares, share)
+		}
+	}
+	return accounts, shares, rows.Err()
+}
+
 func (s *Store) MobileAccount(id string) (MobileAccount, error) {
 	a := MobileAccount{ID: id}
 	var secret []byte

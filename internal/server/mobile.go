@@ -53,6 +53,15 @@ func (s *Server) mobileRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET "+mobilePrefix+"/widget/status", s.withMobile("widget", s.mobileWidgetStatus))
 }
 
+func (s *Server) adminMobileOverview(w http.ResponseWriter, _ *http.Request, _ principal) {
+	accounts, shares, err := s.store.AdminMobileOverview()
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	write(w, 200, map[string]any{"accounts": accounts, "shares": shares, "enabled": s.cfg.Mobile})
+}
+
 func (s *Server) mobileAccountID(phone string) string {
 	return s.mobileAccountKey("mobile-owner:" + phone)
 }

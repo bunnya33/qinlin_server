@@ -9,6 +9,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"qinlin/internal/qinlin"
+	"qinlin/internal/store"
 )
 
 func enableMobileTest(t *testing.T, x *setup) {
@@ -166,6 +167,82 @@ func TestMobileRequiresOptIn(t *testing.T) {
 	if w.Code != 404 {
 		t.Fatal(w.Code, w.Body)
 	}
+}
+
+func TestAdminMobileOverview(t *testing.T) {
+	x := newSetup(t)
+	enableMobileTest(t, x)
+	const path = "/api/v1/admin/mobile"
+	const phone = "13800138001"
+	const upstreamSession = "private-mobile-upstream-session"
+	accountID := x.app.mobileServerAccountID()
+	p, deviceToken, err := x.db.StartMobileSession(accountID, "install-overview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := x.request("GET", path, "", x.admin, "")
+	if empty.Code != 200 || !strings.Contains(empty.Body.String(), `"accounts":[]`) || !strings.Contains(empty.Body.String(), `"shares":[]`) {
+		t.Fatal("unbound account was included in the overview", empty.Body)
+	}
+	if err := x.db.BindMobilePhone(p, "", phone, qinlin.Session{SessionID: upstreamSession}, []qinlin.Door{
+		{CommunityID: "test", DoorID: "front", CommunityName: "Community", Name: "Front"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	doors, err := x.db.MobileDoors(accountID)
+	if err != nil || len(doors) != 1 {
+		t.Fatal(doors, err)
+	}
+	share, shareToken, err := x.db.CreateMobileShare(accountID, "Family", doors[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		token string
+		code  int
+	}{{"", 401}, {deviceToken, 401}, {shareToken, 401}, {x.secret, 403}} {
+		if w := x.request("GET", path, "", tc.token, ""); w.Code != tc.code {
+			t.Fatalf("non-admin credential received %d, want %d", w.Code, tc.code)
+		}
+	}
+	check := func(enabled, available, expired bool) {
+		t.Helper()
+		w := x.request("GET", path, "", x.admin, "")
+		var result struct {
+			Accounts []store.AdminMobileAccount
+			Shares   []store.AdminMobileShare
+			Enabled  bool
+		}
+		raw := w.Body.String()
+		if w.Code != 200 || json.Unmarshal([]byte(raw), &result) != nil || !result.Enabled ||
+			len(result.Accounts) != 1 || len(result.Shares) != 1 {
+			t.Fatal("unexpected overview result", w.Code)
+		}
+		a, s := result.Accounts[0], result.Shares[0]
+		if a.ID != accountID || a.AuthorizedAt <= 0 || a.CheckedAt <= 0 || a.Expired != expired ||
+			!strings.HasPrefix(a.MaskedPhone, "138") || !strings.HasSuffix(a.MaskedPhone, "8001") ||
+			s.ID != share.ID || s.AccountID != a.ID || s.Name != "Family" ||
+			s.DoorID != doors[0].ID || s.DoorName != "Front" || s.Community != "Community" || s.Enabled != enabled || s.DoorAvailable != available {
+			t.Fatal("overview did not preserve account and door metadata")
+		}
+		for _, private := range []string{phone, deviceToken, shareToken, upstreamSession} {
+			if strings.Contains(raw, private) || strings.Contains(x.logs.String(), private) {
+				t.Fatal("overview exposed private data")
+			}
+		}
+	}
+	check(true, true, false)
+	disabled := false
+	if err := x.db.UpdateMobileShare(accountID, share.ID, &disabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.db.RefreshMobileDoors(accountID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.db.ExpireMobileAccount(accountID); err != nil {
+		t.Fatal(err)
+	}
+	check(false, false, true)
 }
 
 func TestMobileDoorRemovalStopsDispatch(t *testing.T) {

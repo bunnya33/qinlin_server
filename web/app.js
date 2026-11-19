@@ -16,7 +16,19 @@ function showError(error){
   }
 }
 function connectionError(message){const error=new Error(message);error.connectionFailed=true;return error;}
-function showLogin(){csrf='';currentOperations=[];doorResults.clear();$('login-panel').hidden=false;$('workspace').hidden=true;$('logout').hidden=true;hideSecret();}
+function showLogin(){
+  csrf='';
+  currentOperations=[];
+  doorResults.clear();
+  if (!$('workspace').hidden) $('notice').hidden=true;
+  $('login-panel').hidden=false;
+  $('workspace').hidden=true;
+  $('logout').hidden=true;
+  hideSecret();
+  if(typeof placeNotice==='function')placeNotice(false);
+  if(typeof resetDashboard==='function')resetDashboard();
+  if(typeof resetMaintenance==='function')resetMaintenance();
+}
 async function api(path,method='GET',body){
   const headers={};if(method!=='GET'){headers['X-CSRF-Token']=csrf;if(body!==undefined)headers['Content-Type']='application/json';}
   let response;try{response=await fetch('/api/v1'+path,{method,headers,credentials:'same-origin',cache:'no-store',body:body===undefined?undefined:JSON.stringify(body)});}catch{throw connectionError('当前页面无法连接服务。请将下方服务地址复制到 Chrome、Edge 或 Safari 的地址栏打开，再登录操作。');}
@@ -27,16 +39,48 @@ async function api(path,method='GET',body){
 async function busy(button,fn){button.disabled=true;try{await fn();}catch(e){showError(e);}finally{button.disabled=false;}}
 function text(tag,value,className){const e=document.createElement(tag);e.textContent=value;if(className)e.className=className;return e;}
 function date(ms){return ms?new Date(ms).toLocaleString('zh-CN',{hour12:false}):'尚无记录';}
+function dataTable(columns){
+  const wrapper=text('div','','table-scroller'),table=text('table',''),head=text('thead',''),header=text('tr',''),body=text('tbody','');
+  wrapper.tabIndex=0;
+  for(const label of columns){
+    const cell=text('th',label);
+    cell.scope='col';
+    header.append(cell);
+  }
+  head.append(header);
+  table.append(head,body);
+  wrapper.append(table);
+  return [wrapper,body];
+}
+function tableRow(body,values){
+  const row=text('tr','');
+  for(const value of values){
+    const cell=text('td','');
+    if(typeof value==='string')cell.textContent=value;
+    else cell.append(value);
+    row.append(cell);
+  }
+  body.append(row);
+}
 function hideSecret(){$('shortcut-result').hidden=true;$('shortcut-url').value='';$('shortcut-auth').value='';}
 const states={disconnected:'尚未关联亲邻账号',valid:'亲邻账号最近验证通过',expired:'亲邻会话已失效',unknown:'亲邻会话状态暂无法确认',relogin_required:'登录后查门未完成，请重新登录'};
+const accountTones={valid:'green',expired:'red',unknown:'peach',relogin_required:'peach'};
 async function load(){
+  const session=csrf;
   const [status,doors,tokens,ops]=await Promise.all([api('/status'),api('/doors'),api('/tokens'),api('/operations')]);
+  if(session!==csrf)return;
+  const entering=$('workspace').hidden;
   currentStatus=status;currentDoors=doors.doors;currentOperations=ops.operations;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;
-  $('account-state').textContent=states[status.account.state]||'状态未知';$('verified-at').textContent='最近查门确认：'+date(status.account.verified_at);
+  if(entering&&typeof placeNotice==='function')placeNotice(true);
+  for(const id of ['account-state','settings-account-state']){
+    $(id).textContent=states[status.account.state]||'状态未知';
+    $(id).dataset.tone=accountTones[status.account.state]||'neutral';
+  }
+  $('verified-at').textContent='最近查门确认 · '+date(status.account.verified_at);
   $('mode').hidden=!status.mock;$('mock-help').hidden=!status.mock;
-  if(['disconnected','expired','relogin_required'].includes(status.account.state))$('account-details').open=true;
-  renderDoors();renderTokens(tokens.tokens);renderOps(ops.operations);
+  renderDoors();renderOverviewDoors();renderTokens(tokens.tokens);renderOps(ops.operations);
+  if(entering&&typeof loadMobileOverview==='function')void loadMobileOverview();
   if(typeof loadMaintenance==='function')void loadMaintenance();
 }
 function operationFeedback(op){
@@ -104,20 +148,61 @@ function renderDoors(){
     const actions=text('div','','door-actions'),open=text('button',sending?'正在请求…':currentStatus.mock?'模拟开门':'开门','primary'),shortcut=text('button','配置快捷指令','secondary');
     open.disabled=sending||!d.enabled||!d.available||!canOpen;shortcut.disabled=!d.enabled||!d.available;
     open.addEventListener('click',()=>requestOpen(d));
-    shortcut.addEventListener('click',()=>busy(shortcut,async()=>{hideSecret();const data=await api('/tokens','POST',{door_id:d.id,name:'iPhone · '+d.name});$('shortcut-url').value=data.open_url;$('shortcut-auth').value='Bearer '+data.secret;$('shortcut-result').hidden=false;$('shortcut-details').open=true;$('shortcut-result').scrollIntoView({behavior:'smooth',block:'center'});renderTokens((await api('/tokens')).tokens);}));
+    shortcut.addEventListener('click',()=>busy(shortcut,async()=>{
+      hideSecret();
+      const data=await api('/tokens','POST',{door_id:d.id,name:'iPhone · '+d.name});
+      if(typeof navigate==='function')navigate('shortcuts');
+      $('shortcut-url').value=data.open_url;
+      $('shortcut-auth').value='Bearer '+data.secret;
+      $('shortcut-result').hidden=false;
+      renderTokens((await api('/tokens')).tokens);
+    }));
     actions.append(open,shortcut);card.append(actions);
     const result=text('div','','door-result-slot');result.setAttribute('role','status');result.setAttribute('aria-live','polite');
     const op=latestDoorOperation(d.id);if(op)result.append(operationPanel(op,true));
     card.append(result);root.append(card);
   }
 }
+function renderOverviewDoors(){
+  const root=$('overview-doors');
+  const available=currentDoors.filter(door=>door.available);
+  const enabled=available.filter(door=>door.enabled);
+  const count=text('div','','summary-row');
+  count.append(text('strong','已启用门禁'),text('span',enabled.length+' / '+available.length+' 扇','badge'));
+  root.replaceChildren(count);
+  if(!available.length){
+    root.append(text('p','暂无可用门禁','muted small'));
+    return;
+  }
+  const preview=available.slice(0,3);
+  for(const door of preview){
+    const row=text('div','','summary-row door-preview');
+    const state=text('span',door.enabled?'已启用':'未启用','badge');
+    state.dataset.tone=door.enabled?'green':'neutral';
+    row.append(text('span',door.name),state);
+    root.append(row);
+  }
+}
 function renderTokens(tokens){const root=$('tokens');root.replaceChildren();if(!tokens.length){root.append(text('p','尚未创建快捷指令令牌。','muted small'));return;}for(const t of tokens){const row=text('div','','token-row'),info=text('div','');info.append(text('strong',t.name),text('p',(t.revoked?'已撤销':t.expires_at<Date.now()?'已到期':'到期时间：'+date(t.expires_at))));row.append(info);if(!t.revoked&&t.expires_at>Date.now()){const revoke=text('button','撤销','quiet');revoke.addEventListener('click',()=>busy(revoke,async()=>{await api('/tokens/'+t.id,'DELETE');hideSecret();await load();}));row.append(revoke);}root.append(row);}}
 function renderOps(ops){
-  const root=$('operations');root.replaceChildren();
-  if(!ops.length){root.append(text('p','暂无开门请求。','muted small'));return;}
-  for(const op of ops){
-    const d=currentDoors.find(d=>d.id===op.door_id),row=text('div','','operation-entry');
-    row.append(text('strong',d?d.name:'历史门禁'),operationPanel(op),text('p','请求编号：'+op.request_id,'operation-id'));root.append(row);
+  for(const [id,detailed] of [['operations',true],['overview-operations',false]]){
+    const root=$(id);
+    if(!ops.length){
+      root.replaceChildren(text('p','暂无开门请求。','table-footer muted'));
+      continue;
+    }
+    const columns=['时间','门禁','结果'];
+    if(detailed)columns.push('说明','请求编号');
+    const [table,rows]=dataTable(columns);
+    for(const op of detailed?ops:ops.slice(0,5)){
+      const door=currentDoors.find(d=>d.id===op.door_id),feedback=operationFeedback(op);
+      const result=text('span',feedback.title,'badge');
+      result.dataset.tone=feedback.tone;
+      const cells=[date(op.created_at),door?door.name:'历史门禁',result];
+      if(detailed)cells.push(text('span',feedback.message,'operation-message'),text('code',op.request_id,'operation-id'));
+      tableRow(rows,cells);
+    }
+    root.replaceChildren(table);
   }
 }
 $('refresh-operations').addEventListener('click',()=>busy($('refresh-operations'),async()=>{
@@ -127,7 +212,7 @@ $('refresh-operations').addEventListener('click',()=>busy($('refresh-operations'
 $('site-login').addEventListener('submit',e=>{e.preventDefault();busy(e.submitter,async()=>{const token=$('admin-token');const credentials=token?{token:token.value}:{username:$('admin-username').value,password:$('admin-password').value};const result=await api('/auth/login','POST',credentials);if(token)token.value='';else $('admin-password').value='';csrf=result.csrf_token;$('notice').hidden=true;await load();});});
 $('logout').addEventListener('click',e=>busy(e.currentTarget,async()=>{await api('/auth/logout','POST',{});showLogin();}));
 $('send-sms').addEventListener('click',e=>busy(e.currentTarget,async()=>{const result=await api('/account/sms','POST',{phone:$('phone').value});notice(result.mock?'模拟模式未发送短信，请使用验证码 123456。':'验证码已发送，请查收短信。');}));
-$('account-login').addEventListener('submit',e=>{e.preventDefault();busy(e.submitter,async()=>{await api('/account/login','POST',{phone:$('phone').value,code:$('sms-code').value});$('sms-code').value='';$('phone').value='';hideSecret();await load();$('account-details').open=false;notice('账号已关联，请启用需要使用的门禁。');});});
+$('account-login').addEventListener('submit',e=>{e.preventDefault();busy(e.submitter,async()=>{await api('/account/login','POST',{phone:$('phone').value,code:$('sms-code').value});$('sms-code').value='';$('phone').value='';hideSecret();await load();navigate('doors');notice('账号已关联，请启用需要使用的门禁。');});});
 $('refresh').addEventListener('click',e=>busy(e.currentTarget,async()=>{await api('/doors/refresh','POST',{});await load();notice('已刷新当前账号的门禁权限。');}));
 $('disconnect').addEventListener('click',e=>{if(!confirm('断开后将删除服务器上的亲邻会话，并撤销全部快捷指令令牌。继续？'))return;busy(e.currentTarget,async()=>{await api('/account','DELETE');hideSecret();await load();notice('已断开亲邻账号。');});});
 $('hide-secret').addEventListener('click',hideSecret);

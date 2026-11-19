@@ -258,7 +258,7 @@ func TestConcurrentDuplicate(t *testing.T) {
 }
 func TestHealthReadOnlyAndRevocation(t *testing.T) {
 	x := newSetup(t)
-	for _, path := range []string{"/", "/healthz", "/app.js", "/app.css", "/request-id.js"} {
+	for _, path := range []string{"/", "/healthz", "/app.js", "/app.css", "/request-id.js", "/dashboard.js", "/maintenance.js"} {
 		w := x.request("GET", path, "", "", "")
 		if w.Code != 200 {
 			t.Fatal(path, w.Code)
