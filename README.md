@@ -248,7 +248,6 @@ Compose 默认将应用发布到服务器的 `127.0.0.1:8080`。通过 IP 直接
 | `QINLIN_COOLDOWN` | 默认 `5s`，从上次请求结束后计算；至少 `1s` |
 | `QINLIN_UPSTREAM_TIMEOUT` | 单次亲邻请求超时，默认 `8s`，范围 `1s`～`30s` |
 | `QINLIN_MOCK` | `true` 为完全本地模拟，默认 `false` |
-| `QINLIN_MOBILE` | `true` 启用「亲邻快开」App 的服务器接口，默认 `false` |
 | `QINLIN_MOBILE` | `true` 启用手机 API，默认 `false`。App 支持 HTTP 和 HTTPS 服务地址 |
 
 不要提交 `.env`、数据库及数据卷；仓库已配置忽略。Linux 文件使用受限权限；Windows 上仍应使用账户和 NTFS 权限限制访问。
