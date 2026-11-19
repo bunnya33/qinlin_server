@@ -210,6 +210,38 @@ button:disabled { opacity: .52; cursor: default; }
 .account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; }
 .content-panel { padding: 18px; }
 .mobile-accounts { margin-top: 16px; }
+.mobile-service-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.mobile-service-setting .small { display: block; }
+.mobile-service-setting input[type="checkbox"] {
+  appearance: none;
+  display: grid;
+  align-items: center;
+  justify-items: start;
+  width: 40px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #82828d;
+  cursor: pointer;
+}
+.mobile-service-setting input::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+}
+.mobile-service-setting input:checked { justify-items: end; background: var(--focus); }
+.mobile-service-setting input:disabled { opacity: .55; cursor: default; }
 .narrow { max-width: 760px; }
 form label:not(.option-row) { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 13px; }
 input:not([type="checkbox"]), select {

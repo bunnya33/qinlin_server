@@ -17,6 +17,7 @@ import (
 )
 
 const mobilePrefix = "/api/mobile/v1"
+const mobileEnabledSetting = "mobile_enabled"
 
 type smsChallenge struct {
 	phone, installation, deviceID string
@@ -37,7 +38,8 @@ type mobileSnapshot struct {
 	Shares  []store.MobileShare `json:"shares"`
 }
 
-func (s *Server) mobileRoutes(m *http.ServeMux) {
+func (s *Server) mobileHandler() http.Handler {
+	m := http.NewServeMux()
 	m.HandleFunc("POST "+mobilePrefix+"/login", s.mobileLogin)
 	m.HandleFunc("POST "+mobilePrefix+"/sms", s.withMobile("device", s.mobileSMS))
 	m.HandleFunc("POST "+mobilePrefix+"/verify", s.withMobile("device", s.mobileVerify))
@@ -51,15 +53,56 @@ func (s *Server) mobileRoutes(m *http.ServeMux) {
 	m.HandleFunc("PUT "+mobilePrefix+"/widget", s.withMobile("device", s.mobileSetWidget))
 	m.HandleFunc("POST "+mobilePrefix+"/widget/open", s.withMobile("widget", s.mobileOpen))
 	m.HandleFunc("GET "+mobilePrefix+"/widget/status", s.withMobile("widget", s.mobileWidgetStatus))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enabled, err := s.mobileEnabled()
+		if err != nil {
+			storeError(w, err)
+			return
+		}
+		if !enabled {
+			writeError(w, http.StatusServiceUnavailable, "mobile_disabled")
+			return
+		}
+		m.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) mobileEnabled() (bool, error) {
+	enabled := true
+	err := s.store.Setting(mobileEnabledSetting, &enabled)
+	return enabled, err
 }
 
 func (s *Server) adminMobileOverview(w http.ResponseWriter, _ *http.Request, _ principal) {
+	enabled, err := s.mobileEnabled()
+	if err != nil {
+		storeError(w, err)
+		return
+	}
 	accounts, shares, err := s.store.AdminMobileOverview()
 	if err != nil {
 		storeError(w, err)
 		return
 	}
-	write(w, 200, map[string]any{"accounts": accounts, "shares": shares, "enabled": s.cfg.Mobile})
+	write(w, 200, map[string]any{"accounts": accounts, "shares": shares, "enabled": enabled})
+}
+
+func (s *Server) setMobileSettings(w http.ResponseWriter, r *http.Request, _ principal) {
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.Enabled == nil {
+		writeError(w, 400, "invalid_mobile_setting")
+		return
+	}
+	if err := s.store.SaveSetting(mobileEnabledSetting, *body.Enabled); err != nil {
+		storeError(w, err)
+		return
+	}
+	write(w, 200, map[string]bool{"enabled": *body.Enabled})
 }
 
 func (s *Server) mobileAccountID(phone string) string {

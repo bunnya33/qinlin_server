@@ -15,7 +15,6 @@ func TestOriginAndKeyValidation(t *testing.T) {
 	t.Setenv("QINLIN_DEVICE_ID", "stable-device-id")
 	t.Setenv("QINLIN_COOLDOWN", "5s")
 	t.Setenv("QINLIN_UPSTREAM_TIMEOUT", "8s")
-	t.Setenv("QINLIN_MOBILE", "true")
 	t.Setenv("QINLIN_MOCK", "false")
 	for _, tc := range []struct {
 		url   string
@@ -36,12 +35,9 @@ func TestOriginAndKeyValidation(t *testing.T) {
 	} {
 		t.Run(tc.url, func(t *testing.T) {
 			t.Setenv("QINLIN_PUBLIC_URL", tc.url)
-			cfg, err := Load()
+			_, err := Load()
 			if (err == nil) != tc.valid {
 				t.Fatal(tc.url, err)
-			}
-			if tc.valid && !cfg.Mobile {
-				t.Fatal("mobile API disabled for a valid origin")
 			}
 		})
 	}

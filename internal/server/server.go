@@ -69,9 +69,7 @@ func New(cfg config.Config, db *store.Store, api qinlin.API, log *slog.Logger) *
 }
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
-	if s.cfg.Mobile {
-		s.mobileRoutes(m)
-	}
+	m.Handle(mobilePrefix+"/", s.mobileHandler())
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if s.store.Ping() != nil {
 			writeError(w, 503, "storage_unavailable")
@@ -118,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("DELETE /api/v1/tokens/{token}", s.withAuth(true, s.revokeToken))
 	m.HandleFunc("GET /api/v1/operations", s.withAuth(true, s.operations))
 	m.HandleFunc("GET /api/v1/admin/mobile", s.withAuth(true, s.adminMobileOverview))
+	m.HandleFunc("PUT /api/v1/admin/mobile/settings", s.withAuth(true, s.setMobileSettings))
 	m.HandleFunc("GET /api/v1/updates", s.withAuth(true, s.getUpdates))
 	m.HandleFunc("PUT /api/v1/updates/settings", s.withAuth(true, s.setUpdatePreferences))
 	m.HandleFunc("POST /api/v1/updates/{action}", s.withAuth(true, s.updateAction))

@@ -1,7 +1,7 @@
 package version
 
 // Release builds override these values with -ldflags.
-var Version = "0.4.1"
+var Version = "0.4.2"
 var Revision = "dev"
 
 type Info struct {

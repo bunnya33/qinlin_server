@@ -12,21 +12,19 @@ import (
 	"qinlin/internal/store"
 )
 
-func enableMobileTest(t *testing.T, x *setup) {
+func setMobileTestAdmin(t *testing.T, x *setup) {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
 	}
-	x.app.cfg.Mobile = true
 	x.app.cfg.AdminUsername = "test-admin"
 	x.app.cfg.AdminPasswordHash = string(hash)
-	x.handler = x.app.Handler()
 }
 
 func TestMobileBindingRenewalAndRevocation(t *testing.T) {
 	x := newSetup(t)
-	enableMobileTest(t, x)
+	setMobileTestAdmin(t, x)
 	x.app.cfg.Mock = true
 
 	type reply struct {
@@ -121,6 +119,26 @@ func TestMobileBindingRenewalAndRevocation(t *testing.T) {
 	if status := request("GET", "/widget/status", "", widget.WidgetToken, "", 200); status.Authorization != "valid" {
 		t.Fatal("valid authorization missing from widget status")
 	}
+
+	const settings = "/api/v1/admin/mobile/settings"
+	if w := x.request("PUT", settings, `{"enabled":false}`, x.admin, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":false`) {
+		t.Fatal(w.Code, w.Body)
+	}
+	request("POST", "/login", `{}`, "", "", 503)
+	request("GET", "/current", "", first.Session, "", 503)
+	request("GET", "/widget/status", "", widget.WidgetToken, "", 503)
+	request("POST", "/widget/open", `{}`, widget.WidgetToken, "open-request-paused", 503)
+	request("POST", sharePath+"/open", `{}`, share.Issued.Credential, "open-request-paused", 503)
+	if x.fake.calls.Load() != 0 {
+		t.Fatal("disabled mobile service dispatched an open request")
+	}
+	if w := x.request("GET", "/api/v1/admin/mobile", "", x.admin, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":false`) {
+		t.Fatal(w.Code, w.Body)
+	}
+	if w := x.request("PUT", settings, `{"enabled":true}`, x.admin, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":true`) {
+		t.Fatal(w.Code, w.Body)
+	}
+	request("GET", "/current", "", first.Session, "", 200)
 	request("POST", "/doors/"+door+"/open", `{}`, first.Session, "open-request-one", 200)
 	request("POST", "/widget/open", `{}`, widget.WidgetToken, "open-request-one", 200)
 	request("POST", "/widget/open", `{}`, widget.WidgetToken, "open-request-two", 429)
@@ -161,17 +179,30 @@ func TestMobileBindingRenewalAndRevocation(t *testing.T) {
 	}
 }
 
-func TestMobileRequiresOptIn(t *testing.T) {
+func TestMobileEnabledByDefault(t *testing.T) {
 	x := newSetup(t)
 	w := x.request("GET", mobilePrefix+"/current", "", "", "")
-	if w.Code != 404 {
+	if w.Code != 401 {
+		t.Fatal(w.Code, w.Body)
+	}
+	const settings = "/api/v1/admin/mobile/settings"
+	for _, tc := range []struct {
+		token string
+		body  string
+		code  int
+	}{{"", `{"enabled":false}`, 401}, {x.secret, `{"enabled":false}`, 403}, {x.admin, `{}`, 400}} {
+		if w := x.request("PUT", settings, tc.body, tc.token, ""); w.Code != tc.code {
+			t.Fatalf("got %d, want %d", w.Code, tc.code)
+		}
+	}
+	if w := x.request("GET", "/api/v1/admin/mobile", "", x.admin, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":true`) {
 		t.Fatal(w.Code, w.Body)
 	}
 }
 
 func TestAdminMobileOverview(t *testing.T) {
 	x := newSetup(t)
-	enableMobileTest(t, x)
+	setMobileTestAdmin(t, x)
 	const path = "/api/v1/admin/mobile"
 	const phone = "13800138001"
 	const upstreamSession = "private-mobile-upstream-session"
@@ -247,7 +278,7 @@ func TestAdminMobileOverview(t *testing.T) {
 
 func TestMobileDoorRemovalStopsDispatch(t *testing.T) {
 	x := newSetup(t)
-	enableMobileTest(t, x)
+	setMobileTestAdmin(t, x)
 	accountID := x.app.mobileServerAccountID()
 	// A door saved during login disappears from the next upstream lookup.
 	session, err := x.fake.Login(t.Context(), "13800138001", "123456")

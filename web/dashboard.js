@@ -62,6 +62,8 @@ function fillFilter(select, label, options) {
 
 function renderMobileOverview() {
   const {accounts, shares, enabled} = mobileOverview;
+  $('mobile-service-enabled').checked = enabled;
+  $('mobile-service-enabled').disabled = false;
   const summary = $('overview-mobile-accounts');
   const valid = accounts.filter(account => !account.expired).length;
   const item = text('div', '', 'summary-row');
@@ -159,6 +161,8 @@ function resetDashboard() {
   mobileLoad = null;
   mobileOverview = null;
   selectedShare = '';
+  $('mobile-service-enabled').checked = false;
+  $('mobile-service-enabled').disabled = true;
   $('overview-mobile-accounts').replaceChildren();
   $('mobile-accounts').replaceChildren(text('p', '正在读取账号', 'table-footer muted'));
   $('share-list').replaceChildren(text('p', '正在读取接口', 'table-footer muted'));
@@ -197,6 +201,23 @@ async function loadMobileOverview(reportError = false) {
   }
 }
 
+async function saveMobileService(event) {
+  const control = event.currentTarget;
+  control.disabled = true;
+  mobileLoad = api('/admin/mobile/settings', 'PUT', {enabled: control.checked})
+    .then(({enabled}) => ({...mobileOverview, enabled}));
+  try {
+    await loadMobileOverview(true);
+    if (mobileOverview) notice(mobileOverview.enabled ? '手机服务已开启。' : '手机服务已关闭。');
+  } catch (error) {
+    if (mobileOverview) {
+      control.checked = mobileOverview.enabled;
+      control.disabled = false;
+    }
+    showError(error);
+  }
+}
+
 window.addEventListener('hashchange', renderPage);
 for (const id of ['share-account-filter', 'share-door-filter', 'share-state-filter']) {
   document.getElementById(id).addEventListener('change', renderShares);
@@ -204,4 +225,5 @@ for (const id of ['share-account-filter', 'share-door-filter', 'share-state-filt
 document.getElementById('reload-shares').addEventListener('click', event => {
   busy(event.currentTarget, () => loadMobileOverview(true));
 });
+document.getElementById('mobile-service-enabled').addEventListener('change', saveMobileService);
 renderPage();
